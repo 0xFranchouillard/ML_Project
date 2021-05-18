@@ -1,0 +1,1 @@
+window.ALL_CRATES = ["cfg_if","getrandom","lib_projet_annuel_machine_learning","libm","matrixmultiply","ndarray","ndarray_rand","num_complex","num_integer","num_traits","ppv_lite86","rand","rand_chacha","rand_core","rand_distr","rawpointer"];
