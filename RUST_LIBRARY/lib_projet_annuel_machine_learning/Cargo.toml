@@ -10,5 +10,7 @@ crate-type = ["cdylib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ndarray = "0.15.1"
+#ndarray = "0.15.1"
 ndarray-rand = "0.14.0"
+ndarray = "0.14.0"
+ndarray-linalg = { version="0.13.1", features=['intel-mkl']}

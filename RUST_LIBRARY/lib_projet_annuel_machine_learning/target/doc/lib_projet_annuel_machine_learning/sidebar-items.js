@@ -1,1 +1,1 @@
-initSidebarItems({"fn":[["create_linear_model",""],["destroy_linear_model",""],["predict_linear_model_classification",""],["predict_linear_model_regression",""],["train_rosenblatt_linear_model",""]]});
+initSidebarItems({"fn":[["create_linear_model",""],["destroy_linear_model",""],["predict_linear_model_classification",""],["predict_linear_model_regression",""],["train_regression_linear_model",""],["train_rosenblatt_linear_model",""]]});

@@ -1,3 +1,4 @@
 (function() {var implementors = {};
 implementors["ndarray"] = [{"text":"impl&lt;A&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"ndarray/struct.OwnedRepr.html\" title=\"struct ndarray::OwnedRepr\">OwnedRepr</a>&lt;A&gt;","synthetic":false,"types":["ndarray::data_repr::OwnedRepr"]}];
+implementors["syn"] = [{"text":"impl&lt;'a&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"syn/parse/struct.ParseBuffer.html\" title=\"struct syn::parse::ParseBuffer\">ParseBuffer</a>&lt;'a&gt;","synthetic":false,"types":["syn::parse::ParseBuffer"]}];
 if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
