@@ -120,3 +120,92 @@ pub extern "C" fn destroy_linear_model(model: *mut f32, model_size: i32) {
         let _ = Vec::from_raw_parts(model, model_size as usize, model_size as usize);
     }
 }
+
+#[derive(Debug)]
+pub struct StructMLP {
+    d: Vec<i32>,
+    w: Vec<Vec<Vec<f32>>>,
+    x: Vec<Vec<f32>>,
+    delta: Vec<Vec<f32>>
+}
+
+#[no_mangle]
+pub extern "C" fn create_mlp_model(npl: *mut i32,  npl_size: i32)-> *mut StructMLP{
+
+    let d = unsafe {
+        from_raw_parts_mut(npl, npl_size as usize)
+    };
+
+    let mut w= Vec::with_capacity(npl_size as usize);
+
+    for i in  0..npl_size as usize{
+        w.push(Vec::with_capacity((d[i-1]+1) as usize));
+        if i == 0{
+            continue;
+        }
+        for j in 0..(d[i-1]+1) as usize{
+            w[i].push(Vec::with_capacity((d[i]+1) as usize));
+
+            for _k in 0..(d[i]+1) as usize {
+                w[i][j].push(rand::thread_rng()
+                    .gen_range(0.0..2.0)-1.0);
+            }
+        }
+    }
+
+    let mut x= Vec::with_capacity(npl_size as usize);
+    for i in 0..npl_size as usize {
+        x.push(Vec::with_capacity((d[i]+1) as usize));
+
+        for j in 0..(d[i]+1) as usize{
+            x[i].push(if j == 0 {1.0}else{0.0});
+        }
+    }
+
+    let mut delta = Vec::with_capacity(npl_size as usize);
+    for i in 0..npl_size as usize {
+        delta.push(Vec::with_capacity((d[i] + 1) as usize));
+
+        for _j in 0..(d[i]+1) as usize {
+            delta[i].push(0.0);
+        }
+    }
+
+    let model = StructMLP{
+        d: d.to_vec(),
+        w,
+        x,
+        delta
+    };
+
+    let boxed_model = Box::new(model);
+    let pointer = Box::leak(boxed_model);
+    pointer
+}
+
+#[no_mangle]
+pub extern "C" fn train_classification_stochastic_backprop_mlp_model(){
+
+}
+
+#[no_mangle]
+pub extern "C" fn train_regression_stochastic_backprop_mlp_model(){
+
+}
+
+#[no_mangle]
+pub extern "C" fn predict_mlp_model_classification(){
+
+}
+
+#[no_mangle]
+pub extern "C" fn predict_mlp_model_regression(){
+
+}
+
+#[no_mangle]
+pub extern "C" fn destroy_mlp_model(npl: *mut i32,  npl_size: i32){
+    unsafe {
+        let _ = Vec::from_raw_parts(npl, npl_size as usize, npl_size as usize);
+    }
+}
