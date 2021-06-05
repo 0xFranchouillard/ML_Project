@@ -11,11 +11,30 @@ FILENUMBER = 0
 CPT = 0
 
 
-def resize_dataset(x, y):
-    filenames = [f for f in os.listdir(PATH)]
+def resize_image(filepath, x, y):
+    image = Image.open(filepath).resize((x, y))
+    image.save(filepath)
+
+
+def resize_images(label, x, y):
+    filenames = [f for f in os.listdir(PATH + '\\' + label)]
+    global CPT
     for f in filenames:
-        image = Image.open(PATH + '\\' + f).resize((x, y))
-        image.save(PATH + '\\' + f)
+        resize_image(PATH + '\\' + label + '\\' + f, x, y)
+        CPT += 1
+        print(f'{CPT / FILENUMBER:2.2%} fichiers resizés')
+
+
+def resize_dataset(x, y):
+    global CPT, FILENUMBER
+    CPT = 0
+    FILENUMBER = 0
+    labelnames = [f for f in os.listdir(PATH)]
+    threads = [None] * len(labelnames)
+    for i in range(len(threads)):
+        FILENUMBER += len(fnmatch.filter(os.listdir(PATH + '\\' + labelnames[i] + '\\'), '*.*'))
+        threads[i] = threading.Thread(target=resize_images, args=(labelnames[i], x, y))
+        threads[i].start()
 
 
 def load_image(filepath):
@@ -34,11 +53,14 @@ def load_images(label, dataset_img, dataset_label):
 
 
 def load_dataset():
+    global CPT
+    global FILENUMBER
+    CPT = 0
+    FILENUMBER = 0
     labelnames = [f for f in os.listdir(PATH)]
     dataset_img = []
     dataset_label = []
     threads = [None] * len(labelnames)
-    global FILENUMBER
     for i in range(len(threads)):
         FILENUMBER += len(fnmatch.filter(os.listdir(PATH + '\\' + labelnames[i] + '\\'), '*.*'))
         threads[i] = threading.Thread(target=load_images, args=(labelnames[i], dataset_img, dataset_label))
