@@ -129,6 +129,69 @@ pub struct StructMLP {
     delta: Vec<Vec<f32>>
 }
 
+impl StructMLP {
+    pub extern "C" fn forward_pass(&mut self, sample_inputs: &Vec<f32>, is_classification: bool){
+        for i in 1..(self.d[0] + 1) as usize {
+            self.x[0][i] = sample_inputs[i-1];
+        }
+        for j in 1..(self.d.len()) as usize {
+            for k in 1..(self.d[j] + 1) as usize{
+                let mut sum_result = 0.0f32;
+                for l in 0..(self.d[j-1]+1) as usize{
+                    sum_result += self.w[j][l][k] * self.x[j-1][l];
+                }
+                self.x[j][k] = sum_result;
+                if (j < self.d.len() - 1) || is_classification{
+                    self.x[j][k] = self.x[j][k].tanh();
+                }
+            }
+        }
+    }
+}
+
+#[no_mangle]
+impl StructMLP {
+    pub extern "C" fn train_stochastic_gradient_backpropagation(&mut self, flattened_data_inputs: &Vec<f32>, flattened_expected_outputs: &Vec<f32>, is_classification: bool, alpha: f32, iterations_count: i32) {
+        let L =(self.d.len() - 1) as usize;
+        let input_dim = self.d[0] as usize;
+        let output_dim = self.d[L] as usize;
+        let samples_count = flattened_data_inputs.len() as usize;
+
+        let mut rng = rand::thread_rng();
+
+        for it in 0..iterations_count as usize {
+            let k = rng.gen_range(0..samples_count) as usize;      // a tester !
+            let sample_inputs = flattened_data_inputs[k * input_dim..(k+1) * input_dim].to_vec();
+            let sample_expected_outputs = &flattened_expected_outputs[k * output_dim..(k+1) * output_dim];
+            self.forward_pass(&sample_inputs, is_classification);
+            for j in 1..(self.d[L] + 1) as usize{
+                self.delta[L][j] = (self.x[L][j] - sample_expected_outputs[j-1]);
+                if is_classification{
+                    self.delta[L][j] = (1.0 - self.x[L][j] * self.x[L][j]) * self.delta[L][j]
+                }
+            }
+            for l in (1..L+1).rev() {
+                for i in 0..(self.d[l - 1] + 1) as usize{
+                    let mut sum_result = 0.0f32;
+                    for j in 1..(self.d[l] + 1) as usize{
+                        sum_result += self.w[l][i][j] * self.delta[l][j];
+                    }
+                    self.delta[l-1][i] = (1.0 - self.x[l-1][i] * self.x[l-1][i]) * sum_result;
+                }
+            }
+            for l in 1..L+1{
+                for i in 0..(self.d[l-1] + 1) as usize{
+                    for j in 1..(self.d[l] + 1) as usize{
+                        self.w[l][i][j] += alpha * self.x[l - 1][i] * self.delta[l][j]
+                    }
+                }
+            }
+        }
+
+
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn create_mlp_model(npl: *mut i32,  npl_size: i32)-> *mut StructMLP{
 
@@ -184,28 +247,80 @@ pub extern "C" fn create_mlp_model(npl: *mut i32,  npl_size: i32)-> *mut StructM
 }
 
 #[no_mangle]
-pub extern "C" fn train_classification_stochastic_backprop_mlp_model(){
+pub extern "C" fn train_classification_stochastic_backprop_mlp_model(model: *mut StructMLP, flattened_data_inputs: *mut f32, flattened_data_inputs_size: i32, flattened_expected_outputs: *mut f32, flattened_expected_outputs_size: i32){
+    let mut model = unsafe{
+        Box::from_raw(model)
+    };
 
+    let mut flattened_data_inputs = unsafe{
+        from_raw_parts(flattened_data_inputs,flattened_data_inputs_size as usize)
+    };
+
+    let mut flattened_expected_outputs = unsafe{
+        from_raw_parts(flattened_expected_outputs,flattened_expected_outputs_size as usize)
+    };
+
+    let alpha = 0.01f32;
+    let iterations_count = 1000;
+
+    model.train_stochastic_gradient_backpropagation(&flattened_data_inputs.to_vec(),&flattened_expected_outputs.to_vec(),true, alpha, iterations_count)
 }
 
 #[no_mangle]
-pub extern "C" fn train_regression_stochastic_backprop_mlp_model(){
+pub extern "C" fn train_regression_stochastic_backprop_mlp_model(model: *mut StructMLP, flattened_data_inputs: *mut f32, flattened_data_inputs_size: i32, flattened_expected_outputs: *mut f32, flattened_expected_outputs_size: i32){
+    let mut model = unsafe{
+        Box::from_raw(model)
+    };
 
+    let mut flattened_data_inputs = unsafe{
+        from_raw_parts(flattened_data_inputs,flattened_data_inputs_size as usize)
+    };
+
+    let mut flattened_expected_outputs = unsafe{
+        from_raw_parts(flattened_expected_outputs,flattened_expected_outputs_size as usize)
+    };
+
+    let alpha = 0.01f32;
+    let iterations_count = 1000;
+
+    model.train_stochastic_gradient_backpropagation(&flattened_data_inputs.to_vec(),&flattened_expected_outputs.to_vec(),false, alpha, iterations_count)
 }
 
 #[no_mangle]
-pub extern "C" fn predict_mlp_model_classification(){
+pub extern "C" fn predict_mlp_model_classification(model: *mut StructMLP, sample_inputs: *mut f32, sample_input_size: i32)-> *mut f32{
+    let sample_inputs = unsafe {
+        from_raw_parts(sample_inputs, sample_input_size as usize)
+    };
+    let mut model = unsafe {
+        Box::from_raw(model)
+    };
 
+    model.forward_pass(&sample_inputs.to_vec(), true);
+
+    let boxed_slice = model.x[model.d.len()-1][1..].to_vec().into_boxed_slice();
+    let arr_ref = Box::leak(boxed_slice);
+    arr_ref.as_mut_ptr()
 }
 
 #[no_mangle]
-pub extern "C" fn predict_mlp_model_regression(){
+pub extern "C" fn predict_mlp_model_regression(model: *mut StructMLP, sample_inputs: *mut f32, sample_input_size: i32)-> *mut f32{
+    let sample_inputs = unsafe {
+        from_raw_parts(sample_inputs, sample_input_size as usize)
+    };
+    let mut model = unsafe {
+        Box::from_raw(model)
+    };
 
+    model.forward_pass(&sample_inputs.to_vec(), false);
+
+    let boxed_slice = model.x[model.d.len()-1][1..].to_vec().into_boxed_slice();
+    let arr_ref = Box::leak(boxed_slice);
+    arr_ref.as_mut_ptr()
 }
 
 #[no_mangle]
-pub extern "C" fn destroy_mlp_model(npl: *mut i32,  npl_size: i32){
+pub extern "C" fn destroy_mlp_model(model : *mut StructMLP){
     unsafe {
-        let _ = Vec::from_raw_parts(npl, npl_size as usize, npl_size as usize);
+        let _ = Box::from_raw(model);
     }
 }
