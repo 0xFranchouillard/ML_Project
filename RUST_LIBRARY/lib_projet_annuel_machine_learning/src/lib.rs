@@ -323,20 +323,47 @@ pub extern "C" fn destroy_mlp_model(model: *mut StructMLP){
 
 
 
-
-
 #[no_mangle]
-pub extern "C" fn predict_svm(model: *mut StructMLP, simple_inputs: *mut f32, sample_inputs_size: i32) -> *mut f32{
-    let mut big_matrix: Vec<Vec<f32>>;
-    for i in 0..sample_inputs_size as usize{
-        for j in 0..sample_inputs_size as usize{
-            transpose::transpose(&model[i], &mut trans, 2, sample_input_size as usize);
-            big_matrix[i].push(simple_inputs[i] * simple_inputs[j] * trans.dot(model[j]));
+pub extern "C" fn train_svm(sample_inputs_flat: *mut f32, expected_outputs: *mut f32, sample_inputs_size: i32, expected_outputs_size: i32){
+
+    let inputs_size = (sample_inputs_size / expected_outputs_size) as usize;
+
+    let expected_outputs = unsafe {
+        from_raw_parts_mut(expected_outputs, expected_outputs_size as usize)
+    };
+
+    let sample_inputs_flat = unsafe {
+        from_raw_parts_mut(sample_inputs_flat, sample_inputs_size as usize)
+    };
+
+
+    let mut sample_inputs= Vec::with_capacity(sample_inputs_size as usize);
+
+    for k in 0..expected_outputs_size as usize {
+        sample_inputs.push(Vec::with_capacity(inputs_size as usize));
+        for l in 0.. inputs_size as usize {
+            sample_inputs[k].push(&sample_inputs_flat[(k * inputs_size) as usize..((k + 1) * inputs_size) as usize]);
         }
     }
-    dbg!("BigMatrix", big_matrix);
 
-    P = assert_eq!("+1.34e2", format!("{:+e}", val));
+    let sample_inputs = Array::from_shape_vec((expected_outputs_size as usize, inputs_size),sample_inputs);
 
-    return i;
+
+
+    //let mut big_matrix= Vec::with_capacity(sample_inputs_size as usize);
+
+    for i in 0..sample_inputs_size as usize {
+       //big_matrix.push(Vec::with_capacity(sample_inputs_size as usize));
+       for j in 0..sample_inputs_size as usize {
+            //big_matrix[i].push(expected_outputs[i] * expected_outputs[j] * sample_inputs[i].t().dot(&sample_inputs[j]));
+       }
+    }
+
+
+
+
+
+    dbg!(sample_inputs);
+
+    //P = assert_eq!("+1.34e2", format!("{:+e}", val));
 }
