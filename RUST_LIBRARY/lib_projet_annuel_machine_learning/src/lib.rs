@@ -320,3 +320,23 @@ pub extern "C" fn destroy_mlp_model(model: *mut StructMLP){
         let _ = Box::from_raw(model);
     }
 }
+
+
+
+
+
+#[no_mangle]
+pub extern "C" fn predict_svm(model: *mut StructMLP, simple_inputs: *mut f32, sample_inputs_size: i32) -> *mut f32{
+    let mut big_matrix: Vec<Vec<f32>>;
+    for i in 0..sample_inputs_size as usize{
+        for j in 0..sample_inputs_size as usize{
+            transpose::transpose(&model[i], &mut trans, 2, sample_input_size as usize);
+            big_matrix[i].push(simple_inputs[i] * simple_inputs[j] * trans.dot(model[j]));
+        }
+    }
+    dbg!("BigMatrix", big_matrix);
+
+    P = assert_eq!("+1.34e2", format!("{:+e}", val));
+
+    return i;
+}
