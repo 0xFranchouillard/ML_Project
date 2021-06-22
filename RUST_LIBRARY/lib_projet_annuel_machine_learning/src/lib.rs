@@ -4,6 +4,7 @@ use ndarray_rand::rand::Rng;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 use ndarray_linalg::*;
 use std::iter::FromIterator;
+use osqp::{CscMatrix, Problem, Settings};
 
 #[no_mangle]
 pub extern "C" fn create_linear_model(mut input_dim: i32) -> *mut f32{
@@ -321,22 +322,36 @@ pub extern "C" fn destroy_mlp_model(model: *mut StructMLP){
     }
 }
 
-
-
-
-
 #[no_mangle]
-pub extern "C" fn predict_svm(model: *mut StructMLP, simple_inputs: *mut f32, sample_inputs_size: i32) -> *mut f32{
-    let mut big_matrix: Vec<Vec<f32>>;
-    for i in 0..sample_inputs_size as usize{
-        for j in 0..sample_inputs_size as usize{
-            transpose::transpose(&model[i], &mut trans, 2, sample_input_size as usize);
-            big_matrix[i].push(simple_inputs[i] * simple_inputs[j] * trans.dot(model[j]));
+pub extern "C" fn train_svm(sample_inputs_flat: *mut f32, expected_outputs: *mut f32, inputs_size: i32, sample_count: i32) {
+    let inputs_size = inputs_size as usize;
+    let sample_count = sample_count as usize;
+    let sample_inputs_flat = unsafe {
+        from_raw_parts_mut(sample_inputs_flat, inputs_size*sample_count)
+    };
+    let expected_outputs = unsafe {
+        from_raw_parts_mut(expected_outputs, sample_count)
+    };
+
+    let mut big_matrix = Vec::with_capacity(sample_count);
+    for i in 0..sample_count {
+        big_matrix.push(Vec::with_capacity(sample_count));
+        let xi = Array::from((&sample_inputs_flat[(i * inputs_size)..((i + 1) * inputs_size)]).to_vec());
+        for j in 0..sample_count {
+            let xj = Array::from((&sample_inputs_flat[(j * inputs_size)..((j + 1) * inputs_size)]).to_vec());
+            big_matrix[i].push((expected_outputs[i] * expected_outputs[j] * xi.t().dot(&xj)) as f64);
         }
     }
-    dbg!("BigMatrix", big_matrix);
+    let P = CscMatrix::from(&big_matrix).into_upper_tri();
+    let q = (Array::ones((sample_count,1)) * -1.0).as_slice().unwrap();
+    let A = CscMatrix::from((Array::<f64,_>::from(expected_outputs.to_vec()).reversed_axes()).as_slice());
+    let l = Array::zeros((sample_count,1)).as_slice().unwrap();
+    let u = Array::zeros((sample_count,1)).as_slice().unwrap();
+    dbg!(&A);
+    dbg!(&q);
+    let settings = Settings::default().verbose(true);
+    let mut prob = Problem::new(P, q, A, l, u, &settings).expect("failed to setup problem");
+    let result = prob.solve();
+    println!("{:?}", result.x().expect("failed to solve problem"));
 
-    P = assert_eq!("+1.34e2", format!("{:+e}", val));
-
-    return i;
 }
