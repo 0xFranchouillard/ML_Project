@@ -1,7 +1,11 @@
 from ctypes import *
 
+import random
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import osqp
+from scipy import sparse
 
 PATH_TO_SHARED_LIBRARY = "D:/CLion/PA/lib_projet_annuel_machine_learning/target/debug" \
                          "/lib_projet_annuel_machine_learning.dll "
@@ -220,7 +224,8 @@ def train_classification_stochastic_backprop_mlp_model(my_lib, model, dataset_in
     my_lib.train_classification_stochastic_backprop_mlp_model(model,
                                                               dataset_inputs_flattened_type(*dataset_inputs_flattened),
                                                               len(dataset_inputs_flattened),
-                                                              dataset_expected_outputs_type(*dataset_expected_outputs_float),
+                                                              dataset_expected_outputs_type(
+                                                                  *dataset_expected_outputs_float),
                                                               len(dataset_expected_outputs_float),
                                                               alpha, iterations_count)
 
@@ -304,7 +309,8 @@ def train_regression_stochastic_backprop_mlp_model(my_lib, model, dataset_inputs
     my_lib.train_regression_stochastic_backprop_mlp_model(model,
                                                           dataset_inputs_type(*dataset_inputs_float),
                                                           len(dataset_inputs_float),
-                                                          dataset_expected_outputs_type(*dataset_expected_outputs_float),
+                                                          dataset_expected_outputs_type(
+                                                              *dataset_expected_outputs_float),
                                                           len(dataset_expected_outputs_float),
                                                           float(0.01), 100000)
 
@@ -374,7 +380,8 @@ def train_classification_stochastic_backprop_mlp_model_3_class(my_lib, model, da
     my_lib.train_classification_stochastic_backprop_mlp_model(model,
                                                               dataset_inputs_flattened_type(*dataset_inputs_float),
                                                               len(dataset_inputs_float),
-                                                              dataset_expected_outputs_type(*dataset_expected_outputs_float),
+                                                              dataset_expected_outputs_type(
+                                                                  *dataset_expected_outputs_float),
                                                               len(dataset_expected_outputs_float),
                                                               alpha, iterations_count)
 
@@ -415,6 +422,620 @@ def test_classification_mlp_model_3_class(my_lib):
     destroy_mlp_model(my_lib, model)
 
 
+def create_svm_model(my_lib, dataset_inputs, dataset_expected_outputs):
+    dataset_inputs_flattened = []
+    for elt in dataset_inputs:
+        dataset_inputs_flattened.append(elt[0])
+        dataset_inputs_flattened.append(elt[1])
+    dataset_inputs_flattened_type = len(dataset_inputs_flattened) * c_double
+    dataset_expected_outputs_float = [float(i) for i in dataset_expected_outputs]
+    dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
+    my_lib.create_svm_model.argtypes = [dataset_inputs_flattened_type,
+                                        dataset_expected_outputs_type,
+                                        c_int,
+                                        c_int]
+    my_lib.create_svm_model.restype = POINTER(c_float)
+    return my_lib.create_svm_model(dataset_inputs_flattened_type(*dataset_inputs_flattened),
+                                   dataset_expected_outputs_type(*dataset_expected_outputs_float),
+                                   int(len(dataset_inputs_flattened) / len(dataset_expected_outputs_float)),
+                                   len(dataset_expected_outputs_float))
+
+
+def predict_svm(my_lib, model, inputs):
+    inputs_float = [float(i) for i in inputs]
+    inputs_type = len(inputs_float) * c_float
+    my_lib.predict_svm.argtypes = [POINTER(c_float),
+                                   inputs_type,
+                                   c_int]
+    my_lib.predict_svm.restype = c_float
+    return my_lib.predict_svm(model, inputs_type(*inputs_float), len(inputs_float))
+
+
+def test_svm(my_lib):
+    dataset_inputs = np.array([
+        [1.0, 1],
+        [2, 1],
+        [2, 2],
+        [4, 1],
+        [4, 4]
+    ])
+    dataset_expected_outputs = np.array([
+        1,
+        1,
+        -1,
+        -1,
+        -1
+    ])
+
+    model = create_svm_model(my_lib, dataset_inputs, dataset_expected_outputs)
+
+    points_x1_blue = []
+    points_x2_blue = []
+
+    points_x1_red = []
+    points_x2_red = []
+
+    for i in range(0, 50):
+        for j in range(0, 50):
+            if predict_svm(my_lib, model, [1.0, i / 10, j / 10]) >= 0:
+                points_x1_blue.append(i / 10)
+                points_x2_blue.append(j / 10)
+            else:
+                points_x1_red.append(i / 10)
+                points_x2_red.append(j / 10)
+
+    plt.scatter(points_x1_blue, points_x2_blue, c='pink')
+    plt.scatter(points_x1_red, points_x2_red, c='cyan')
+
+    plt.scatter([p[0] for p in dataset_inputs[:2]], [p[1] for p in dataset_inputs[:2]], c='red', s=100)
+    plt.scatter([p[0] for p in dataset_inputs[2:]], [p[1] for p in dataset_inputs[2:]], c='blue', s=100)
+
+    plt.show()
+
+    # SVM x3
+
+    # X = np.random.random((500, 2)) * 2.0 - 1.0
+    # Y = np.array([[1, 0, 0] if -p[0] - p[1] - 0.5 > 0 and p[1] < 0 and p[0] - p[1] - 0.5 < 0 else
+    #               [0, 1, 0] if -p[0] - p[1] - 0.5 < 0 and p[1] > 0 and p[0] - p[1] - 0.5 < 0 else
+    #               [0, 0, 1] if -p[0] - p[1] - 0.5 < 0 and p[1] < 0 and p[0] - p[1] - 0.5 > 0 else
+    #               [0, 0, 0] for p in X])
+    # X = X[[not np.all(arr == [0, 0, 0]) for arr in Y]]
+    # Y = Y[[not np.all(arr == [0, 0, 0]) for arr in Y]]
+    # Y1 = np.array([1 if v[0] == 1 else -1 for v in Y])
+    # Y2 = np.array([1 if v[1] == 1 else -1 for v in Y])
+    # Y3 = np.array([1 if v[2] == 1 else -1 for v in Y])
+    #
+    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 0],
+    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 1],
+    #             color='blue')
+    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 0],
+    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 1],
+    #             color='red')
+    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 0],
+    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 1],
+    #             color='green')
+    # plt.show()
+    # plt.clf()
+
+    # BigMatrix = []
+    # for i in range(len(X)):
+    #     BigMatrix.append([])
+    #     for j in range(len(X)):
+    #         BigMatrix[i].append(Y1[i] * Y1[j] * (np.matmul(X[i].T, X[j])))
+    # BigMatrix = np.array(BigMatrix)
+    # print("BigMatrix:", BigMatrix)
+    #
+    # # Define problem data
+    # P = sparse.csc_matrix(BigMatrix)
+    # q = np.ones(len(X)) * -1
+    # A = []
+    # for i in range(len(X) + 1):
+    #     A.append([])
+    #     for j in range(len(X)):
+    #         if i == 0:
+    #             A[i].append(Y1[j])
+    #         elif i - 1 == j:
+    #             A[i].append(1.0)
+    #         else:
+    #             A[i].append(0.0)
+    # A = sparse.csc_matrix(A)
+    # l = np.zeros(len(X) + 1)
+    # u = np.zeros(len(X) + 1)
+    # for i in range(1, len(X) + 1):
+    #     u[i] = 10000000000.0
+    #
+    # # Create an OSQP object
+    # prob = osqp.OSQP()
+    #
+    # # Setup workspace and change alpha parameter
+    # prob.setup(P, q, A, l, u, alpha=0.1)
+    #
+    # # Solve problem
+    # res = prob.solve()
+    # print(res.x)
+    #
+    # model = create_svm_model(my_lib, X, Y1)
+    # model2 = create_svm_model(my_lib, X, Y2)
+    # model3 = create_svm_model(my_lib, X, Y3)
+    #
+    # points = [[i / 50.0, j / 50.0] for i in range(-50, 51) for j in range(-50, 51)]
+    #
+    # predicted_values = [predict_svm(my_lib, model, p) for p in points]
+    # predicted_values2 = [predict_svm(my_lib, model2, p) for p in points]
+    # predicted_values3 = [predict_svm(my_lib, model3, p) for p in points]
+    # for i in range(len(predicted_values)):
+    #     if predicted_values[i] >= 0:
+    #         predicted_values[i] = 0
+    #     if predicted_values2[i] >= 0:
+    #         predicted_values[i] = 1
+    #     if predicted_values3[i] >= 0:
+    #         predicted_values[i] = 2
+    #     if predicted_values[i] < 0 and predicted_values2[i] < 0 and predicted_values3[i] < 0:
+    #         predicted_values[i] = 3
+    #
+    # colors = ['cyan' if c == 0 else ('pink' if c == 1 else ('orange' if c == 2 else 'yellow')) for c in
+    #           predicted_values]
+    #
+    # plt.scatter([p[0] for p in points], [p[1] for p in points], c=colors)
+    #
+    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 0],
+    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 1],
+    #             color='blue')
+    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 0],
+    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 1],
+    #             color='red')
+    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 0],
+    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 1],
+    #             color='green')
+    # plt.show()
+    # plt.clf()
+
+
+def create_svm_kernel_trick_model(my_lib, dataset_inputs, dataset_expected_outputs):
+    dataset_inputs_flattened = []
+    for elt in dataset_inputs:
+        dataset_inputs_flattened.append(elt[0])
+        dataset_inputs_flattened.append(elt[1])
+    dataset_inputs_flattened_type = len(dataset_inputs_flattened) * c_float
+    dataset_expected_outputs_float = [float(i) for i in dataset_expected_outputs]
+    dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
+    my_lib.create_svm_kernel_trick_model.argtypes = [dataset_inputs_flattened_type,
+                                                     dataset_expected_outputs_type,
+                                                     c_int,
+                                                     c_int]
+    my_lib.create_svm_kernel_trick_model.restype = POINTER(c_void_p)
+    return my_lib.create_svm_kernel_trick_model(dataset_inputs_flattened_type(*dataset_inputs_flattened),
+                                                dataset_expected_outputs_type(*dataset_expected_outputs_float),
+                                                int(len(dataset_inputs_flattened) / len(
+                                                    dataset_expected_outputs_float)),
+                                                len(dataset_expected_outputs_float))
+
+
+def predict_svm_kernel_trick(my_lib, model, inputs):
+    inputs_float = [float(i) for i in inputs]
+    inputs_type = len(inputs_float) * c_float
+    my_lib.predict_svm_kernel_trick.argtypes = [POINTER(c_void_p),
+                                                inputs_type,
+                                                c_int]
+    my_lib.predict_svm_kernel_trick.restype = c_float
+    return my_lib.predict_svm_kernel_trick(model, inputs_type(*inputs_float), len(inputs_float))
+
+
+def test_svm_kernel_trick(my_lib):
+    X = np.array([[random.uniform(0.5, 4.5), random.uniform(0.5, 4.5)] for _ in range(20)])
+    Y = [random.randint(0, 1) for _ in range(20)]
+    Y = np.array([elt if elt == 1 else -1 for elt in Y])
+    # print(X)
+    # print(Y)
+
+    model = create_svm_kernel_trick_model(my_lib, X, Y);
+
+    points_x1_blue = []
+    points_x2_blue = []
+
+    points_x1_red = []
+    points_x2_red = []
+
+    for i in range(0, 50):
+        for j in range(0, 50):
+            pred = predict_svm_kernel_trick(my_lib, model, [i / 10, j / 10])
+            if pred >= 0:
+                points_x1_blue.append(i / 10)
+                points_x2_blue.append(j / 10)
+            else:
+                points_x1_red.append(i / 10)
+                points_x2_red.append(j / 10)
+
+    plt.scatter(points_x1_blue, points_x2_blue, c='pink')
+    plt.scatter(points_x1_red, points_x2_red, c='cyan')
+
+    plt.scatter([X[k][0] for k in range(len(X)) if Y[k] == 1], [X[k][1] for k in range(len(X)) if Y[k] == 1], c='red',
+                s=100)
+    plt.scatter([X[k][0] for k in range(len(X)) if Y[k] == -1], [X[k][1] for k in range(len(X)) if Y[k] == -1],
+                c='blue', s=100)
+
+    plt.show()
+
+    # Multi Cross
+    X = np.random.random((1000, 2)) * 2.0 - 1.0
+    Y = np.array([[1, 0, 0] if abs(p[0] % 0.5) <= 0.25 and abs(p[1] % 0.5) > 0.25 else [0, 1, 0] if abs(
+        p[0] % 0.5) > 0.25 and abs(p[1] % 0.5) <= 0.25 else [0, 0, 1] for p in X])
+
+    Y1 = np.array([1 if v[0] == 1 else -1 for v in Y])
+    Y2 = np.array([1 if v[1] == 1 else -1 for v in Y])
+    Y3 = np.array([1 if v[2] == 1 else -1 for v in Y])
+
+    model = create_svm_kernel_trick_model(my_lib, X, Y1)
+    model2 = create_svm_kernel_trick_model(my_lib, X, Y2)
+    model3 = create_svm_kernel_trick_model(my_lib, X, Y3)
+
+    points = [[i / 50.0, j / 50.0] for i in range(-50, 51) for j in range(-50, 51)]
+
+    predicted_values = [predict_svm_kernel_trick(my_lib, model, p) for p in points]
+    predicted_values2 = [predict_svm_kernel_trick(my_lib, model2, p) for p in points]
+    predicted_values3 = [predict_svm_kernel_trick(my_lib, model3, p) for p in points]
+    for i in range(len(predicted_values)):
+        if predicted_values[i] >= 0:
+            predicted_values[i] = 0
+        if predicted_values2[i] >= 0:
+            predicted_values[i] = 1
+        if predicted_values3[i] >= 0:
+            predicted_values[i] = 2
+        if predicted_values[i] < 0 and predicted_values2[i] < 0 and predicted_values3[i] < 0:
+            predicted_values[i] = 3
+
+    colors = ['cyan' if c == 0 else ('pink' if c == 1 else ('orange' if c == 2 else 'yellow')) for c in
+              predicted_values]
+
+    plt.scatter([p[0] for p in points], [p[1] for p in points], c=colors)
+
+    plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 0],
+                np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 1],
+                color='blue')
+    plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 0],
+                np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 1],
+                color='red')
+    plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 0],
+                np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 1],
+                color='green')
+    plt.show()
+    plt.clf()
+
+
+def create_rbf_k_center_model(my_lib, input_dim, cluster_num, gamma):
+    my_lib.create_rbf_k_center_model.argtypes = [c_int,
+                                                 c_int,
+                                                 c_float]
+    my_lib.create_rbf_k_center_model.restype = POINTER(c_void_p)
+
+    return my_lib.create_rbf_k_center_model(input_dim, cluster_num, float(gamma))
+
+
+def destroy_rbf_k_center_model(my_lib, model):
+    my_lib.destroy_rbf_k_center_model.argtypes = [POINTER(c_void_p)]
+    my_lib.destroy_rbf_k_center_model.restype = None
+    my_lib.destroy_rbf_k_center_model(model)
+
+
+def train_regression_rbf_k_center_model(my_lib, model, X, Y):
+    # dataset_inputs_flattened = []
+    # for elt in X:
+    #     dataset_inputs_flattened.append(elt[0])
+    #     dataset_inputs_flattened.append(elt[1])
+    dataset_inputs_flattened = [float(i) for i in X]
+    dataset_inputs_flattened_type = len(dataset_inputs_flattened) * c_float
+    dataset_expected_outputs_float = [float(i) for i in Y]
+    dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
+
+    my_lib.train_regression_rbf_k_center_model.argtypes = [POINTER(c_void_p),
+                                                           dataset_inputs_flattened_type,
+                                                           dataset_expected_outputs_type,
+                                                           c_int,
+                                                           c_int]
+    my_lib.train_regression_rbf_k_center_model.restype = None
+    my_lib.train_regression_rbf_k_center_model(model,
+                                               dataset_inputs_flattened_type(*dataset_inputs_flattened),
+                                               dataset_expected_outputs_type(*dataset_expected_outputs_float),
+                                               int(len(dataset_inputs_flattened) / len(dataset_expected_outputs_float)),
+                                               len(dataset_expected_outputs_float))
+
+
+def predict_rbf_k_center_model_regression(my_lib, model, inputs):
+    inputs_float = [float(i) for i in inputs]
+    inputs_type = len(inputs_float) * c_float
+    my_lib.predict_rbf_k_center_model_regression.argtypes = [POINTER(c_void_p),
+                                                             inputs_type]
+    my_lib.predict_rbf_k_center_model_regression.restype = c_float
+    return my_lib.predict_rbf_k_center_model_regression(model, inputs_type(*inputs_float))
+
+
+def test_regression_rbf_k_center_model(my_lib):
+    # Init dataset
+    X = [
+        1.0,
+        3.0,
+        4.0,
+    ]
+    Y = [
+        2.0,
+        3.0,
+        7.0
+    ]
+
+    model = create_rbf_k_center_model(my_lib, 1, 3, 0.01)
+
+    train_regression_rbf_k_center_model(my_lib, model, X, Y)
+
+    point_x = []
+    point_y = []
+
+    for i in range(-10, 11):
+        point_x.append(float(i))
+        point_y.append(predict_rbf_k_center_model_regression(my_lib, model, [i]))
+
+    plt.plot(point_x, point_y)
+    plt.scatter(X, Y, c="purple")
+    plt.show()
+
+    destroy_rbf_k_center_model(my_lib, model)
+
+    X = np.array([
+        [1, 1],
+        [2, 2],
+        [3, 1]
+    ])
+    Y = np.array([
+        2,
+        3,
+        2.5
+    ])
+
+    model = create_rbf_k_center_model(my_lib, 2, 3, 0.1)
+
+    train_regression_rbf_k_center_model(my_lib, model, X.flatten(), Y)
+
+    points_x = []
+    points_y = []
+    points_z = []
+
+    for i in range(10, 31):
+        for j in range(10, 31):
+            points_x.append(float(i / 10))
+            points_y.append(float(j / 10))
+            points_z.append(float(predict_rbf_k_center_model_regression(my_lib, model, [i / 10, j / 10])))
+
+    fig = plt.figure()
+    ax = Axes3D(fig)
+    ax.scatter(points_x, points_y, points_z)
+    ax.scatter(X[:, 0], X[:, 1], Y, c="orange", s=100)
+    plt.show()
+    plt.clf()
+
+    destroy_rbf_k_center_model(my_lib, model)
+
+    X = [
+        1.5,
+        1.4,
+        1.5,
+        1.4,
+        2.5,
+        2.4,
+        2.5,
+        2.4
+    ]
+    Y = [
+        1.5,
+        1.5,
+        1.4,
+        1.4,
+        2.5,
+        2.5,
+        2.4,
+        2.4
+    ]
+
+    model = create_rbf_k_center_model(my_lib, 1, 2, 0.1)
+
+    train_regression_rbf_k_center_model(my_lib, model, X, Y)
+
+    point_x = []
+    point_y = []
+
+    for i in range(1, 5):
+        point_x.append(float(i))
+        point_y.append(predict_rbf_k_center_model_regression(my_lib, model, [i]))
+
+    plt.plot(point_x, point_y)
+    plt.scatter(X, Y, c="purple")
+    plt.show()
+
+    destroy_rbf_k_center_model(my_lib, model)
+
+    X = np.array([
+        [1.5, 1.5],
+        [1.4, 1.5],
+        [1.5, 1.4],
+        [1.4, 1.4],
+        [2.5, 2.5],
+        [2.4, 2.5],
+        [2.5, 2.4],
+        [2.4, 2.4]
+    ])
+    Y = np.array([
+        1,
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+        2
+    ])
+
+    model = create_rbf_k_center_model(my_lib, 2, 2, 0.1)
+
+    train_regression_rbf_k_center_model(my_lib, model, X.flatten(), Y)
+
+    points_x = []
+    points_y = []
+    points_z = []
+
+    for i in range(10, 31):
+        for j in range(10, 31):
+            points_x.append(float(i / 10))
+            points_y.append(float(j / 10))
+            points_z.append(float(predict_rbf_k_center_model_regression(my_lib, model, [i / 10, j / 10])))
+
+    fig = plt.figure()
+    ax = Axes3D(fig)
+    ax.scatter(points_x, points_y, points_z)
+    ax.scatter(X[:, 0], X[:, 1], Y, c="orange", s=100)
+    plt.show()
+    plt.clf()
+
+    destroy_rbf_k_center_model(my_lib, model)
+
+
+def train_rosenblatt_rbf_k_center_model(my_lib, model, X, Y, iterations, alpha):
+    dataset_inputs_flattened = [float(i) for i in X]
+    dataset_inputs_flattened_type = len(dataset_inputs_flattened) * c_float
+    dataset_expected_outputs_float = [float(i) for i in Y]
+    dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
+
+    my_lib.train_rosenblatt_rbf_k_center_model.argtypes = [POINTER(c_void_p),
+                                                           dataset_inputs_flattened_type,
+                                                           dataset_expected_outputs_type,
+                                                           c_int,
+                                                           c_float,
+                                                           c_int,
+                                                           c_int]
+    my_lib.train_rosenblatt_rbf_k_center_model.restype = None
+    my_lib.train_rosenblatt_rbf_k_center_model(model,
+                                               dataset_inputs_flattened_type(*dataset_inputs_flattened),
+                                               dataset_expected_outputs_type(*dataset_expected_outputs_float),
+                                               int(iterations),
+                                               float(alpha),
+                                               int(len(dataset_inputs_flattened) / len(dataset_expected_outputs_float)),
+                                               len(dataset_expected_outputs_float))
+
+
+def predict_rbf_k_center_model_classification(my_lib, model, inputs):
+    inputs_float = [float(i) for i in inputs]
+    inputs_type = len(inputs_float) * c_float
+    my_lib.predict_rbf_k_center_model_classification.argtypes = [POINTER(c_void_p),
+                                                                 inputs_type]
+    my_lib.predict_rbf_k_center_model_classification.restype = c_float
+    return my_lib.predict_rbf_k_center_model_classification(model, inputs_type(*inputs_float))
+
+
+def test_classification_rbf_k_center_model(my_lib):
+    X = np.array([
+        [1, 2],
+        [2, 3],
+        [3, 3]
+    ])
+    Y = np.array([
+        1,
+        -1,
+        -1
+    ])
+
+    model = create_rbf_k_center_model(my_lib, 2, 3, 0.1)
+
+    train_rosenblatt_rbf_k_center_model(my_lib, model, X.flatten(), Y, 10000, 0.01)
+
+    points_x1_blue = []
+    points_x2_blue = []
+
+    points_x1_red = []
+    points_x2_red = []
+    for i in range(5, 36):
+        for j in range(5, 36):
+            if predict_rbf_k_center_model_classification(my_lib, model, [i / 10, j / 10]) == 1.0:
+                points_x1_blue.append(i / 10)
+                points_x2_blue.append(j / 10)
+            else:
+                points_x1_red.append(i / 10)
+                points_x2_red.append(j / 10)
+
+    plt.scatter(points_x1_blue, points_x2_blue, c='blue')
+    plt.scatter(points_x1_red, points_x2_red, c='red')
+
+    plt.scatter(X[0, 0], X[0, 1], color='blue', s=100)
+    plt.scatter(X[1:3, 0], X[1:3, 1], color='red', s=100)
+    plt.show()
+    plt.clf()
+
+    destroy_rbf_k_center_model(my_lib, model)
+
+    X = np.concatenate(
+        [np.random.random((50, 2)) * 0.9 + np.array([1, 1]), np.random.random((50, 2)) * 0.9 + np.array([2, 2])])
+    Y = np.concatenate([np.ones((50, 1)), np.ones((50, 1)) * -1.0])
+
+    model = create_rbf_k_center_model(my_lib, 2, 2, 0.1)
+
+    train_rosenblatt_rbf_k_center_model(my_lib, model, X.flatten(), Y, 10000, 0.01)
+
+    points_x1_blue = []
+    points_x2_blue = []
+
+    points_x1_red = []
+    points_x2_red = []
+
+    for i in range(9, 31):
+        for j in range(9, 31):
+            if predict_rbf_k_center_model_classification(my_lib, model, [i / 10, j / 10]) >= 0:
+                points_x1_blue.append(i / 10)
+                points_x2_blue.append(j / 10)
+            else:
+                points_x1_red.append(i / 10)
+                points_x2_red.append(j / 10)
+
+    plt.scatter(points_x1_blue, points_x2_blue, c='blue')
+    plt.scatter(points_x1_red, points_x2_red, c='red')
+
+    plt.scatter(X[0:50, 0], X[0:50, 1], color='blue', s=100)
+    plt.scatter(X[50:100, 0], X[50:100, 1], color='red', s=100)
+    plt.show()
+    plt.clf()
+
+    destroy_rbf_k_center_model(my_lib, model)
+
+    # XOR
+
+    X = np.array([[1, 0], [0, 1], [0, 0], [1, 1]])
+    Y = np.array([1, 1, -1, -1])
+
+    model = create_rbf_k_center_model(my_lib, 2, 4, 0.1)
+
+    train_rosenblatt_rbf_k_center_model(my_lib, model, X.flatten(), Y, 100000, 0.01)
+
+    points_x1_blue = []
+    points_x2_blue = []
+
+    points_x1_red = []
+    points_x2_red = []
+
+    for i in range(-5, 16):
+        for j in range(-5, 16):
+            if predict_rbf_k_center_model_classification(my_lib, model, [i / 10, j / 10]) >= 0:
+                points_x1_blue.append(i / 10.0)
+                points_x2_blue.append(j / 10.0)
+            else:
+                points_x1_red.append(i / 10.0)
+                points_x2_red.append(j / 10.0)
+
+    plt.scatter(points_x1_blue, points_x2_blue, c='blue')
+    plt.scatter(points_x1_red, points_x2_red, c='red')
+
+    plt.scatter(X[0:2, 0], X[0:2, 1], color='blue', s=100)
+    plt.scatter(X[2:4, 0], X[2:4, 1], color='red', s=100)
+    plt.show()
+    plt.clf()
+
+    destroy_rbf_k_center_model(my_lib, model)
+
+
 if __name__ == "__main__":
     # Load lib
     my_lib = cdll.LoadLibrary(PATH_TO_SHARED_LIBRARY)
@@ -423,4 +1044,8 @@ if __name__ == "__main__":
     # test_regression_linear_model(my_lib)
     # test_classification_mlp_model(my_lib)
     # test_regression_mlp_model(my_lib)
-    test_classification_mlp_model_3_class(my_lib)
+    # test_classification_mlp_model_3_class(my_lib)
+    # test_svm(my_lib)
+    # test_svm_kernel_trick(my_lib)
+    # test_regression_rbf_k_center_model(my_lib)
+    test_classification_rbf_k_center_model(my_lib)
