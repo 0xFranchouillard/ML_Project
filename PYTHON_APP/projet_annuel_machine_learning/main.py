@@ -4,11 +4,11 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-import osqp
-from scipy import sparse
 
-PATH_TO_SHARED_LIBRARY = "D:/CLion/PA/lib_projet_annuel_machine_learning/target/debug" \
-                         "/lib_projet_annuel_machine_learning.dll "
+from projet_annuel_machine_learning.process_dataset import load_dataset, resize_dataset
+
+PATH_TO_SHARED_LIBRARY = "C:/Users/Cyrille Champion/Desktop/ML_Project/RUST_LIBRARY/lib_projet_annuel_machine_learning/target/release/" \
+                         "lib_projet_annuel_machine_learning.dll"
 
 
 def create_linear_model(my_lib, size):
@@ -1048,4 +1048,17 @@ if __name__ == "__main__":
     # test_svm(my_lib)
     # test_svm_kernel_trick(my_lib)
     # test_regression_rbf_k_center_model(my_lib)
-    test_classification_rbf_k_center_model(my_lib)
+    # test_classification_rbf_k_center_model(my_lib)
+    dataset_img, dataset_label = load_dataset()
+    print(dataset_label[:5])
+    dataset_img = np.array(dataset_img[:5])
+
+    model = create_mlp_model(my_lib, [30000, 3])
+
+    dataset_expected_outputs = np.array([[1, 0, 0] if p == 'Dionea' else [0, 1, 0] if p == 'Sarracenia' else [0, 0, 1] for p in dataset_label[:5]])
+    train_classification_stochastic_backprop_mlp_model_3_class(my_lib, model, dataset_img.flatten(),
+                                                               dataset_expected_outputs.flatten(), float(0.03), 25)
+
+    predicted = [predict_mlp_model_classification_3_class(my_lib, model, np.array(dataset_img[i].flatten() for i in range(3)))]
+
+    print(predicted)
