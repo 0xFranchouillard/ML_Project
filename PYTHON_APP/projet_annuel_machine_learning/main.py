@@ -4,66 +4,71 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from process_dataset import *
 
-from projet_annuel_machine_learning.process_dataset import load_dataset, resize_dataset
-
-PATH_TO_SHARED_LIBRARY = "C:/Users/Cyrille Champion/Desktop/ML_Project/RUST_LIBRARY/lib_projet_annuel_machine_learning/target/release/" \
-                         "lib_projet_annuel_machine_learning.dll"
+PATH_TO_SHARED_LIBRARY = "D:/CLion/PA/lib_projet_annuel_machine_learning/target/debug" \
+                         "/lib_projet_annuel_machine_learning.dll "
+path_to_shared_library_release = "D:/CLion/PA/lib_projet_annuel_machine_learning/target/release/lib_projet_annuel_machine_learning.dll"
 
 
 def create_linear_model(my_lib, size):
     my_lib.create_linear_model.argtypes = [c_int]
-    my_lib.create_linear_model.restype = POINTER(c_float)
-
-    p_model = my_lib.create_linear_model(size)
-    model = np.ctypeslib.as_array(p_model, (size + 1,))
-
-    model_size = len(model)
-    return p_model, model_size
+    my_lib.create_linear_model.restype = POINTER(c_void_p)
+    return my_lib.create_linear_model(size)
 
 
-def destroy_linear_model(my_lib, model, model_size):
-    my_lib.destroy_linear_model.argtypes = [POINTER(c_float), c_int]
+def save_linear_model(my_lib, model, path):
+    my_lib.save_linear_model.argtypes = [POINTER(c_void_p),
+                                         c_char_p]
+    my_lib.save_linear_model.restype = None
+    my_lib.save_linear_model(model,
+                             path.encode("utf-8"))
+
+
+def load_linear_model(my_lib, path):
+    my_lib.load_linear_model.argtypes = [c_char_p]
+    my_lib.load_linear_model.restype = POINTER(c_void_p)
+    return my_lib.load_linear_model(path.encode("utf-8"))
+
+
+def destroy_linear_model(my_lib, model):
+    my_lib.destroy_linear_model.argtypes = [POINTER(c_void_p)]
     my_lib.destroy_linear_model.restype = None
-    my_lib.destroy_linear_model(model, model_size)
+    my_lib.destroy_linear_model(model)
 
 
-def predict_linear_model_classification(my_lib, model, model_size, inputs):
+def predict_linear_model_classification(my_lib, model, inputs):
     inputs_float = [float(i) for i in inputs]
     inputs_type = len(inputs_float) * c_float
 
-    my_lib.predict_linear_model_classification.argtypes = [POINTER(c_float),
-                                                           inputs_type,
-                                                           c_int]
+    my_lib.predict_linear_model_classification.argtypes = [POINTER(c_void_p),
+                                                           inputs_type]
     my_lib.predict_linear_model_classification.restype = c_float
 
-    return my_lib.predict_linear_model_classification(model, inputs_type(*inputs_float), model_size)
+    return my_lib.predict_linear_model_classification(model,
+                                                      inputs_type(*inputs_float))
 
 
-def train_rosenblatt_linear_model(my_lib, model, model_size, dataset_inputs, dataset_expected_outputs, iteration_count,
-                                  alpha):
-    dataset_inputs_flattened_for_train = []
-    for elt in dataset_inputs:
-        dataset_inputs_flattened_for_train.append(float(elt[0]))
-        dataset_inputs_flattened_for_train.append(float(elt[1]))
-    dataset_inputs_flattened_for_train_type = len(dataset_inputs_flattened_for_train) * c_float
+def train_rosenblatt_linear_model(my_lib, model, dataset_inputs, dataset_expected_outputs, iteration_count, alpha):
+    dataset_inputs_float = [float(i) for i in dataset_inputs]
+    dataset_inputs_type = len(dataset_inputs_float) * c_float
     dataset_expected_outputs_float = [float(i) for i in dataset_expected_outputs]
     dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
 
-    my_lib.train_rosenblatt_linear_model.argtypes = [POINTER(c_float),
-                                                     dataset_inputs_flattened_for_train_type,
+    my_lib.train_rosenblatt_linear_model.argtypes = [POINTER(c_void_p),
+                                                     dataset_inputs_type,
                                                      dataset_expected_outputs_type,
                                                      c_int,
                                                      c_float,
-                                                     c_int,
                                                      c_int]
     my_lib.train_rosenblatt_linear_model.restype = None
 
     my_lib.train_rosenblatt_linear_model(model,
-                                         dataset_inputs_flattened_for_train_type(*dataset_inputs_flattened_for_train),
+                                         dataset_inputs_type(*dataset_inputs_float),
                                          dataset_expected_outputs_type(*dataset_expected_outputs_float),
-                                         iteration_count, float(alpha), model_size,
-                                         len(dataset_inputs_flattened_for_train))
+                                         iteration_count,
+                                         float(alpha),
+                                         len(dataset_inputs_float))
 
 
 def test_classification_linear_model(my_lib):
@@ -80,7 +85,7 @@ def test_classification_linear_model(my_lib):
     ]
 
     # Création du model
-    model, model_size = create_linear_model(my_lib, 2)
+    model = create_linear_model(my_lib, 2)
 
     for _ in range(5):
         points_x1_blue = []
@@ -90,7 +95,7 @@ def test_classification_linear_model(my_lib):
         points_x2_red = []
         for i in range(-10, 11):
             for j in range(-10, 11):
-                if predict_linear_model_classification(my_lib, model, model_size, [i, j]) == 1.0:
+                if predict_linear_model_classification(my_lib, model, [i, j]) == 1.0:
                     points_x1_blue.append(i)
                     points_x2_blue.append(j)
                 else:
@@ -104,38 +109,41 @@ def test_classification_linear_model(my_lib):
         plt.scatter([p[0] for p in dataset_inputs[2:]], [p[1] for p in dataset_inputs[2:]], c='red', s=100)
         plt.show()
 
-        train_rosenblatt_linear_model(my_lib, model, model_size, dataset_inputs, dataset_expected_outputs, 20, 0.1)
+        train_rosenblatt_linear_model(my_lib, model, np.array(dataset_inputs).flatten(), dataset_expected_outputs, 20, 0.1)
 
-    destroy_linear_model(my_lib, model, model_size)
+    save_linear_model(my_lib, model, "linear_model_classification.json")
+    model2 = load_linear_model(my_lib, "linear_model_classification.json")
+    destroy_linear_model(my_lib, model)
+    destroy_linear_model(my_lib, model2)
 
 
-def predict_linear_model_regression(my_lib, model, model_size, inputs):
+def predict_linear_model_regression(my_lib, model, inputs):
     inputs_float = [float(i) for i in inputs]
     inputs_type = len(inputs_float) * c_float
 
-    my_lib.predict_linear_model_regression.argtypes = [POINTER(c_float),
-                                                       inputs_type,
-                                                       c_int]
+    my_lib.predict_linear_model_regression.argtypes = [POINTER(c_void_p),
+                                                       inputs_type]
     my_lib.predict_linear_model_regression.restype = c_float
 
-    return my_lib.predict_linear_model_regression(model, inputs_type(*inputs_float), model_size)
+    return my_lib.predict_linear_model_regression(model,
+                                                  inputs_type(*inputs_float))
 
 
-def train_regression_linear_model(my_lib, model, model_size, dataset_inputs, dataset_expected_outputs):
+def train_regression_linear_model(my_lib, model, dataset_inputs, dataset_expected_outputs):
     dataset_inputs_float = [float(i) for i in dataset_inputs]
     dataset_inputs_type = len(dataset_inputs_float) * c_float
     dataset_expected_outputs_float = [float(i) for i in dataset_expected_outputs]
     dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
 
-    my_lib.train_regression_linear_model.argtypes = [POINTER(c_float),
+    my_lib.train_regression_linear_model.argtypes = [POINTER(c_void_p),
                                                      dataset_inputs_type,
                                                      dataset_expected_outputs_type,
-                                                     c_int,
                                                      c_int]
     my_lib.train_regression_linear_model.restype = None
 
-    my_lib.train_regression_linear_model(model, dataset_inputs_type(*dataset_inputs_float),
-                                         dataset_expected_outputs_type(*dataset_expected_outputs_float), model_size,
+    my_lib.train_regression_linear_model(model,
+                                         dataset_inputs_type(*dataset_inputs_float),
+                                         dataset_expected_outputs_type(*dataset_expected_outputs_float),
                                          len(dataset_inputs_float))
 
 
@@ -153,7 +161,7 @@ def test_regression_linear_model(my_lib):
     ]
 
     # Création du model
-    model, model_size = create_linear_model(my_lib, 1)
+    model = create_linear_model(my_lib, 1)
 
     for _ in range(2):
         point_x = []
@@ -161,15 +169,15 @@ def test_regression_linear_model(my_lib):
 
         for i in range(-10, 11):
             point_x.append(float(i))
-            point_y.append(predict_linear_model_regression(my_lib, model, model_size, [i]))
+            point_y.append(predict_linear_model_regression(my_lib, model, [i]))
 
         plt.scatter(point_x, point_y)
         plt.scatter(dataset_inputs, dataset_expected_outputs, c="purple")
         plt.show()
 
-        train_regression_linear_model(my_lib, model, model_size, dataset_inputs, dataset_expected_outputs)
+        train_regression_linear_model(my_lib, model, dataset_inputs, dataset_expected_outputs)
 
-    destroy_linear_model(my_lib, model, model_size)
+    destroy_linear_model(my_lib, model)
 
 
 def create_mlp_model(my_lib, struct_model):
@@ -181,6 +189,18 @@ def create_mlp_model(my_lib, struct_model):
     my_lib.create_mlp_model.restype = POINTER(c_void_p)
 
     return my_lib.create_mlp_model(struct_model_type(*struct_model_int), len(struct_model_int))
+
+
+def save_mlp_model(my_lib, model, path):
+    my_lib.save_mlp_model.argtypes = [POINTER(c_void_p), c_char_p]
+    my_lib.save_mlp_model.restype = None
+    my_lib.save_mlp_model(model, path.encode("utf-8"))
+
+
+def load_mlp_model(my_lib, path):
+    my_lib.load_mlp_model.argtypes = [c_char_p]
+    my_lib.load_mlp_model.restype = POINTER(c_void_p)
+    return my_lib.load_mlp_model(path.encode("utf-8"))
 
 
 def destroy_mlp_model(my_lib, model):
@@ -275,6 +295,7 @@ def test_classification_mlp_model(my_lib):
         train_classification_stochastic_backprop_mlp_model(my_lib, model, dataset_inputs, dataset_expected_outputs,
                                                            float(0.01), 100000)
 
+    save_mlp_model(my_lib, model, "mlp_model_classification.json")
     destroy_mlp_model(my_lib, model)
 
 
@@ -345,6 +366,7 @@ def test_regression_mlp_model(my_lib):
 
         train_regression_stochastic_backprop_mlp_model(my_lib, model, dataset_inputs, dataset_expected_outputs)
 
+    save_mlp_model(my_lib, model, "mlp_model_regression.json")
     destroy_mlp_model(my_lib, model)
 
 
@@ -422,33 +444,54 @@ def test_classification_mlp_model_3_class(my_lib):
     destroy_mlp_model(my_lib, model)
 
 
-def create_svm_model(my_lib, dataset_inputs, dataset_expected_outputs):
-    dataset_inputs_flattened = []
-    for elt in dataset_inputs:
-        dataset_inputs_flattened.append(elt[0])
-        dataset_inputs_flattened.append(elt[1])
-    dataset_inputs_flattened_type = len(dataset_inputs_flattened) * c_double
+def create_svm_model(my_lib, dataset_inputs, dataset_expected_outputs, alpha, max_iterations_count):
+    dataset_inputs_double = [c_double(i) for i in dataset_inputs]
+    dataset_inputs_type = len(dataset_inputs_double) * c_double
     dataset_expected_outputs_float = [float(i) for i in dataset_expected_outputs]
     dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
-    my_lib.create_svm_model.argtypes = [dataset_inputs_flattened_type,
+    my_lib.create_svm_model.argtypes = [dataset_inputs_type,
                                         dataset_expected_outputs_type,
                                         c_int,
+                                        c_int,
+                                        c_double,
                                         c_int]
-    my_lib.create_svm_model.restype = POINTER(c_float)
-    return my_lib.create_svm_model(dataset_inputs_flattened_type(*dataset_inputs_flattened),
+    my_lib.create_svm_model.restype = POINTER(c_void_p)
+    return my_lib.create_svm_model(dataset_inputs_type(*dataset_inputs_double),
                                    dataset_expected_outputs_type(*dataset_expected_outputs_float),
-                                   int(len(dataset_inputs_flattened) / len(dataset_expected_outputs_float)),
-                                   len(dataset_expected_outputs_float))
+                                   int(len(dataset_inputs_double) / len(dataset_expected_outputs_float)),
+                                   len(dataset_expected_outputs_float),
+                                   alpha,
+                                   max_iterations_count)
+
+
+def save_svm_model(my_lib, model, path):
+    my_lib.save_svm_model.argtypes = [POINTER(c_void_p), c_char_p]
+    my_lib.save_svm_model.restype = None
+    my_lib.save_svm_model(model, path.encode("utf-8"))
+
+
+def load_svm_model(my_lib, path):
+    my_lib.load_svm_model.argtypes = [c_char_p]
+    my_lib.load_svm_model.restype = POINTER(c_void_p)
+    return my_lib.load_svm_model(path.encode("utf-8"))
 
 
 def predict_svm(my_lib, model, inputs):
     inputs_float = [float(i) for i in inputs]
     inputs_type = len(inputs_float) * c_float
-    my_lib.predict_svm.argtypes = [POINTER(c_float),
+    my_lib.predict_svm.argtypes = [POINTER(c_void_p),
                                    inputs_type,
                                    c_int]
     my_lib.predict_svm.restype = c_float
-    return my_lib.predict_svm(model, inputs_type(*inputs_float), len(inputs_float))
+    return my_lib.predict_svm(model,
+                              inputs_type(*inputs_float),
+                              len(inputs_float))
+
+
+def destroy_svm_model(my_lib, model):
+    my_lib.destroy_svm_model.argtypes = [POINTER(c_void_p)]
+    my_lib.destroy_svm_model.restype = None
+    my_lib.destroy_svm_model(model)
 
 
 def test_svm(my_lib):
@@ -467,7 +510,7 @@ def test_svm(my_lib):
         -1
     ])
 
-    model = create_svm_model(my_lib, dataset_inputs, dataset_expected_outputs)
+    model = create_svm_model(my_lib, dataset_inputs.flatten(), dataset_expected_outputs, 1.0, 10000)
 
     points_x1_blue = []
     points_x2_blue = []
@@ -492,106 +535,66 @@ def test_svm(my_lib):
 
     plt.show()
 
+    save_svm_model(my_lib, model, "svm_model.json")
+    model2 = load_svm_model(my_lib, "svm_model.json")
+    destroy_svm_model(my_lib, model)
+    destroy_svm_model(my_lib, model2)
+
     # SVM x3
 
-    # X = np.random.random((500, 2)) * 2.0 - 1.0
-    # Y = np.array([[1, 0, 0] if -p[0] - p[1] - 0.5 > 0 and p[1] < 0 and p[0] - p[1] - 0.5 < 0 else
-    #               [0, 1, 0] if -p[0] - p[1] - 0.5 < 0 and p[1] > 0 and p[0] - p[1] - 0.5 < 0 else
-    #               [0, 0, 1] if -p[0] - p[1] - 0.5 < 0 and p[1] < 0 and p[0] - p[1] - 0.5 > 0 else
-    #               [0, 0, 0] for p in X])
-    # X = X[[not np.all(arr == [0, 0, 0]) for arr in Y]]
-    # Y = Y[[not np.all(arr == [0, 0, 0]) for arr in Y]]
-    # Y1 = np.array([1 if v[0] == 1 else -1 for v in Y])
-    # Y2 = np.array([1 if v[1] == 1 else -1 for v in Y])
-    # Y3 = np.array([1 if v[2] == 1 else -1 for v in Y])
-    #
-    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 0],
-    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 1],
-    #             color='blue')
-    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 0],
-    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 1],
-    #             color='red')
-    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 0],
-    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 1],
-    #             color='green')
-    # plt.show()
-    # plt.clf()
+    X = np.random.random((500, 2)) * 2.0 - 1.0
+    Y = np.array([[1, 0, 0] if -p[0] - p[1] - 0.5 > 0 and p[1] < 0 and p[0] - p[1] - 0.5 < 0 else
+                  [0, 1, 0] if -p[0] - p[1] - 0.5 < 0 and p[1] > 0 and p[0] - p[1] - 0.5 < 0 else
+                  [0, 0, 1] if -p[0] - p[1] - 0.5 < 0 and p[1] < 0 and p[0] - p[1] - 0.5 > 0 else
+                  [0, 0, 0] for p in X])
+    X = np.array(X[[not np.all(arr == [0, 0, 0]) for arr in Y]])
+    Y = Y[[not np.all(arr == [0, 0, 0]) for arr in Y]]
+    Y1 = np.array([1 if v[0] == 1 else -1 for v in Y])
+    Y2 = np.array([1 if v[1] == 1 else -1 for v in Y])
+    Y3 = np.array([1 if v[2] == 1 else -1 for v in Y])
 
-    # BigMatrix = []
-    # for i in range(len(X)):
-    #     BigMatrix.append([])
-    #     for j in range(len(X)):
-    #         BigMatrix[i].append(Y1[i] * Y1[j] * (np.matmul(X[i].T, X[j])))
-    # BigMatrix = np.array(BigMatrix)
-    # print("BigMatrix:", BigMatrix)
-    #
-    # # Define problem data
-    # P = sparse.csc_matrix(BigMatrix)
-    # q = np.ones(len(X)) * -1
-    # A = []
-    # for i in range(len(X) + 1):
-    #     A.append([])
-    #     for j in range(len(X)):
-    #         if i == 0:
-    #             A[i].append(Y1[j])
-    #         elif i - 1 == j:
-    #             A[i].append(1.0)
-    #         else:
-    #             A[i].append(0.0)
-    # A = sparse.csc_matrix(A)
-    # l = np.zeros(len(X) + 1)
-    # u = np.zeros(len(X) + 1)
-    # for i in range(1, len(X) + 1):
-    #     u[i] = 10000000000.0
-    #
-    # # Create an OSQP object
-    # prob = osqp.OSQP()
-    #
-    # # Setup workspace and change alpha parameter
-    # prob.setup(P, q, A, l, u, alpha=0.1)
-    #
-    # # Solve problem
-    # res = prob.solve()
-    # print(res.x)
-    #
-    # model = create_svm_model(my_lib, X, Y1)
-    # model2 = create_svm_model(my_lib, X, Y2)
-    # model3 = create_svm_model(my_lib, X, Y3)
-    #
-    # points = [[i / 50.0, j / 50.0] for i in range(-50, 51) for j in range(-50, 51)]
-    #
-    # predicted_values = [predict_svm(my_lib, model, p) for p in points]
-    # predicted_values2 = [predict_svm(my_lib, model2, p) for p in points]
-    # predicted_values3 = [predict_svm(my_lib, model3, p) for p in points]
-    # for i in range(len(predicted_values)):
-    #     if predicted_values[i] >= 0:
-    #         predicted_values[i] = 0
-    #     if predicted_values2[i] >= 0:
-    #         predicted_values[i] = 1
-    #     if predicted_values3[i] >= 0:
-    #         predicted_values[i] = 2
-    #     if predicted_values[i] < 0 and predicted_values2[i] < 0 and predicted_values3[i] < 0:
-    #         predicted_values[i] = 3
-    #
-    # colors = ['cyan' if c == 0 else ('pink' if c == 1 else ('orange' if c == 2 else 'yellow')) for c in
-    #           predicted_values]
-    #
-    # plt.scatter([p[0] for p in points], [p[1] for p in points], c=colors)
-    #
-    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 0],
-    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 1],
-    #             color='blue')
-    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 0],
-    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 1],
-    #             color='red')
-    # plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 0],
-    #             np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 1],
-    #             color='green')
-    # plt.show()
-    # plt.clf()
+    model = create_svm_model(my_lib, X.flatten(), Y1, 1.0, 10000)
+    model2 = create_svm_model(my_lib, X.flatten(), Y2, 1.0, 10000)
+    model3 = create_svm_model(my_lib, X.flatten(), Y3, 1.0, 10000)
+
+    points = [[1.0, i / 50.0, j / 50.0] for i in range(-50, 51) for j in range(-50, 51)]
+
+    predicted_values = [predict_svm(my_lib, model, p) for p in points]
+    predicted_values2 = [predict_svm(my_lib, model2, p) for p in points]
+    predicted_values3 = [predict_svm(my_lib, model3, p) for p in points]
+    for i in range(len(predicted_values)):
+        if predicted_values[i] >= 0:
+            predicted_values[i] = 0
+        if predicted_values2[i] >= 0:
+            predicted_values[i] = 1
+        if predicted_values3[i] >= 0:
+            predicted_values[i] = 2
+        if predicted_values[i] < 0 and predicted_values2[i] < 0 and predicted_values3[i] < 0:
+            predicted_values[i] = 3
+
+    colors = ['cyan' if c == 0 else ('pink' if c == 1 else ('orange' if c == 2 else 'yellow')) for c in
+              predicted_values]
+
+    plt.scatter([p[1] for p in points], [p[2] for p in points], c=colors)
+
+    plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 0],
+                np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][0] == 1, enumerate(X)))))[:, 1],
+                color='blue')
+    plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 0],
+                np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][1] == 1, enumerate(X)))))[:, 1],
+                color='red')
+    plt.scatter(np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 0],
+                np.array(list(map(lambda elt: elt[1], filter(lambda c: Y[c[0]][2] == 1, enumerate(X)))))[:, 1],
+                color='green')
+    plt.show()
+    plt.clf()
+
+    destroy_svm_model(my_lib, model)
+    destroy_svm_model(my_lib, model2)
+    destroy_svm_model(my_lib, model3)
 
 
-def create_svm_kernel_trick_model(my_lib, dataset_inputs, dataset_expected_outputs):
+def create_svm_kernel_trick_model(my_lib, dataset_inputs, dataset_expected_outputs, alpha, max_iterations_count):
     dataset_inputs_flattened = []
     for elt in dataset_inputs:
         dataset_inputs_flattened.append(elt[0])
@@ -602,13 +605,29 @@ def create_svm_kernel_trick_model(my_lib, dataset_inputs, dataset_expected_outpu
     my_lib.create_svm_kernel_trick_model.argtypes = [dataset_inputs_flattened_type,
                                                      dataset_expected_outputs_type,
                                                      c_int,
+                                                     c_int,
+                                                     c_double,
                                                      c_int]
     my_lib.create_svm_kernel_trick_model.restype = POINTER(c_void_p)
     return my_lib.create_svm_kernel_trick_model(dataset_inputs_flattened_type(*dataset_inputs_flattened),
                                                 dataset_expected_outputs_type(*dataset_expected_outputs_float),
                                                 int(len(dataset_inputs_flattened) / len(
                                                     dataset_expected_outputs_float)),
-                                                len(dataset_expected_outputs_float))
+                                                len(dataset_expected_outputs_float),
+                                                alpha,
+                                                max_iterations_count)
+
+
+def save_svm_kernel_trick_model(my_lib, model, path):
+    my_lib.save_svm_kernel_trick_model.argtypes = [POINTER(c_void_p), c_char_p]
+    my_lib.save_svm_kernel_trick_model.restype = None
+    my_lib.save_svm_kernel_trick_model(model, path.encode("utf-8"))
+
+
+def load_svm_kernel_trick_model(my_lib, path):
+    my_lib.load_svm_kernel_trick_model.argtypes = [c_char_p]
+    my_lib.load_svm_kernel_trick_model.restype = POINTER(c_void_p)
+    return my_lib.load_svm_kernel_trick_model(path.encode("utf-8"))
 
 
 def predict_svm_kernel_trick(my_lib, model, inputs):
@@ -621,6 +640,12 @@ def predict_svm_kernel_trick(my_lib, model, inputs):
     return my_lib.predict_svm_kernel_trick(model, inputs_type(*inputs_float), len(inputs_float))
 
 
+def destroy_svm_kernel_trick_model(my_lib, model):
+    my_lib.destroy_svm_kernel_trick_model.argtypes = [POINTER(c_void_p)]
+    my_lib.destroy_svm_kernel_trick_model.restype = None
+    my_lib.destroy_svm_kernel_trick_model(model)
+
+
 def test_svm_kernel_trick(my_lib):
     X = np.array([[random.uniform(0.5, 4.5), random.uniform(0.5, 4.5)] for _ in range(20)])
     Y = [random.randint(0, 1) for _ in range(20)]
@@ -628,7 +653,7 @@ def test_svm_kernel_trick(my_lib):
     # print(X)
     # print(Y)
 
-    model = create_svm_kernel_trick_model(my_lib, X, Y);
+    model = create_svm_kernel_trick_model(my_lib, X, Y, 1.0, 10000)
 
     points_x1_blue = []
     points_x2_blue = []
@@ -656,6 +681,11 @@ def test_svm_kernel_trick(my_lib):
 
     plt.show()
 
+    save_svm_kernel_trick_model(my_lib, model, "svm_kernel_trick_model.json")
+    model2 = load_svm_kernel_trick_model(my_lib, "svm_kernel_trick_model.json")
+    destroy_svm_kernel_trick_model(my_lib, model)
+    destroy_svm_kernel_trick_model(my_lib, model2)
+
     # Multi Cross
     X = np.random.random((1000, 2)) * 2.0 - 1.0
     Y = np.array([[1, 0, 0] if abs(p[0] % 0.5) <= 0.25 and abs(p[1] % 0.5) > 0.25 else [0, 1, 0] if abs(
@@ -665,9 +695,9 @@ def test_svm_kernel_trick(my_lib):
     Y2 = np.array([1 if v[1] == 1 else -1 for v in Y])
     Y3 = np.array([1 if v[2] == 1 else -1 for v in Y])
 
-    model = create_svm_kernel_trick_model(my_lib, X, Y1)
-    model2 = create_svm_kernel_trick_model(my_lib, X, Y2)
-    model3 = create_svm_kernel_trick_model(my_lib, X, Y3)
+    model = create_svm_kernel_trick_model(my_lib, X, Y1, 0.01, 2500000)
+    model2 = create_svm_kernel_trick_model(my_lib, X, Y2, 0.01, 2500000)
+    model3 = create_svm_kernel_trick_model(my_lib, X, Y3, 0.01, 2500000)
 
     points = [[i / 50.0, j / 50.0] for i in range(-50, 51) for j in range(-50, 51)]
 
@@ -701,6 +731,10 @@ def test_svm_kernel_trick(my_lib):
     plt.show()
     plt.clf()
 
+    destroy_svm_kernel_trick_model(my_lib, model)
+    destroy_svm_kernel_trick_model(my_lib, model2)
+    destroy_svm_kernel_trick_model(my_lib, model3)
+
 
 def create_rbf_k_center_model(my_lib, input_dim, cluster_num, gamma):
     my_lib.create_rbf_k_center_model.argtypes = [c_int,
@@ -711,6 +745,18 @@ def create_rbf_k_center_model(my_lib, input_dim, cluster_num, gamma):
     return my_lib.create_rbf_k_center_model(input_dim, cluster_num, float(gamma))
 
 
+def save_rbf_k_center_model(my_lib, model, path):
+    my_lib.save_rbf_k_center_model.argtypes = [POINTER(c_void_p), c_char_p]
+    my_lib.save_rbf_k_center_model.restype = None
+    my_lib.save_rbf_k_center_model(model, path.encode("utf-8"))
+
+
+def load_rbf_k_center_model(my_lib, path):
+    my_lib.load_rbf_k_center_model.argtypes = [c_char_p]
+    my_lib.load_rbf_k_center_model.restype = POINTER(c_void_p)
+    return my_lib.load_rbf_k_center_model(path.encode("utf-8"))
+
+
 def destroy_rbf_k_center_model(my_lib, model):
     my_lib.destroy_rbf_k_center_model.argtypes = [POINTER(c_void_p)]
     my_lib.destroy_rbf_k_center_model.restype = None
@@ -718,25 +764,21 @@ def destroy_rbf_k_center_model(my_lib, model):
 
 
 def train_regression_rbf_k_center_model(my_lib, model, X, Y):
-    # dataset_inputs_flattened = []
-    # for elt in X:
-    #     dataset_inputs_flattened.append(elt[0])
-    #     dataset_inputs_flattened.append(elt[1])
-    dataset_inputs_flattened = [float(i) for i in X]
-    dataset_inputs_flattened_type = len(dataset_inputs_flattened) * c_float
+    dataset_inputs_float = [float(i) for i in X]
+    dataset_inputs_type = len(dataset_inputs_float) * c_float
     dataset_expected_outputs_float = [float(i) for i in Y]
     dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
 
     my_lib.train_regression_rbf_k_center_model.argtypes = [POINTER(c_void_p),
-                                                           dataset_inputs_flattened_type,
+                                                           dataset_inputs_type,
                                                            dataset_expected_outputs_type,
                                                            c_int,
                                                            c_int]
     my_lib.train_regression_rbf_k_center_model.restype = None
     my_lib.train_regression_rbf_k_center_model(model,
-                                               dataset_inputs_flattened_type(*dataset_inputs_flattened),
+                                               dataset_inputs_type(*dataset_inputs_float),
                                                dataset_expected_outputs_type(*dataset_expected_outputs_float),
-                                               int(len(dataset_inputs_flattened) / len(dataset_expected_outputs_float)),
+                                               int(len(dataset_inputs_float) / len(dataset_expected_outputs_float)),
                                                len(dataset_expected_outputs_float))
 
 
@@ -777,7 +819,10 @@ def test_regression_rbf_k_center_model(my_lib):
     plt.scatter(X, Y, c="purple")
     plt.show()
 
+    save_rbf_k_center_model(my_lib, model, "rbf_k_center_model.json")
+    model2 = load_rbf_k_center_model(my_lib, "rbf_k_center_model.json")
     destroy_rbf_k_center_model(my_lib, model)
+    destroy_rbf_k_center_model(my_lib, model2)
 
     X = np.array([
         [1, 1],
@@ -1039,6 +1084,7 @@ def test_classification_rbf_k_center_model(my_lib):
 if __name__ == "__main__":
     # Load lib
     my_lib = cdll.LoadLibrary(PATH_TO_SHARED_LIBRARY)
+    # my_lib = cdll.LoadLibrary(path_to_shared_library_release)
 
     # test_classification_linear_model(my_lib)
     # test_regression_linear_model(my_lib)
@@ -1049,16 +1095,24 @@ if __name__ == "__main__":
     # test_svm_kernel_trick(my_lib)
     # test_regression_rbf_k_center_model(my_lib)
     # test_classification_rbf_k_center_model(my_lib)
-    dataset_img, dataset_label = load_dataset()
-    print(dataset_label[:5])
-    dataset_img = np.array(dataset_img[:5])
 
-    model = create_mlp_model(my_lib, [30000, 3])
-
-    dataset_expected_outputs = np.array([[1, 0, 0] if p == 'Dionea' else [0, 1, 0] if p == 'Sarracenia' else [0, 0, 1] for p in dataset_label[:5]])
-    train_classification_stochastic_backprop_mlp_model_3_class(my_lib, model, dataset_img.flatten(),
-                                                               dataset_expected_outputs.flatten(), float(0.03), 25)
-
-    predicted = [predict_mlp_model_classification_3_class(my_lib, model, np.array(dataset_img[i].flatten() for i in range(3)))]
-
-    print(predicted)
+    # dataset_img, dataset_label = load_dataset()
+    # dataset_img = np.array(dataset_img[:5])
+    # # print(dataset_img[0])
+    # # print(len(dataset_img[0].flatten()))
+    # print(dataset_label[:5])
+    # dataset_expected_outputs = np.array(
+    #     [[1, 0, 0] if p == "Dionea" else [0, 1, 0] if p == "Sarracenia" else [0, 0, 1] for p in dataset_label[:5]])
+    # print(dataset_expected_outputs)
+    #
+    # model = create_mlp_model(my_lib, [480000, 3])
+    #
+    # train_classification_stochastic_backprop_mlp_model_3_class(my_lib, model, dataset_img.flatten(),
+    #                                                            dataset_expected_outputs.flatten(), float(0.03),
+    #                                                            250000)
+    #
+    # predicted_values = [predict_mlp_model_classification_3_class(my_lib, model, np.array(dataset_img[i]).flatten()) for
+    #                     i in range(3)]
+    # print(predicted_values)
+    #
+    # destroy_mlp_model(my_lib, model)

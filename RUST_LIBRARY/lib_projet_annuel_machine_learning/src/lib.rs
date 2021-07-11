@@ -7,11 +7,20 @@ use std::iter::FromIterator;
 use osqp::{CscMatrix, Problem, Settings};
 use libm::*;
 use itertools::Itertools;
+use serde::{Serialize, Deserialize};
+use std::fs::File;
+use std::io::{Write, BufReader};
+use std::ffi::CStr;
+use std::os::raw::c_char;
 
 /// LINEAR MODEL ///
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StructLinearModel {
+    model: Vec<f32>,
+}
+
 #[no_mangle]
-pub extern "C" fn create_linear_model(mut input_dim: i32) -> *mut f32 {
-    // let mut arr = Array::random((1, input_dim as usize), Uniform::new(-1., 1.));
+pub extern "C" fn create_linear_model(mut input_dim: i32) -> *mut StructLinearModel {
     input_dim += 1;
     let mut arr = Vec::with_capacity(input_dim as usize);
     for _ in 0..input_dim {
@@ -19,18 +28,52 @@ pub extern "C" fn create_linear_model(mut input_dim: i32) -> *mut f32 {
             .gen_range(0.0..2.0) - 1.0);
     }
 
-    let boxed_slice = arr.into_boxed_slice();
-    let arr_ref = Box::leak(boxed_slice);
-    arr_ref.as_mut_ptr()
+    let model = StructLinearModel {
+        model: arr,
+    };
+
+    let boxed_model = Box::new(model);
+    let pointer = Box::leak(boxed_model);
+    pointer
 }
 
+
 #[no_mangle]
-pub extern "C" fn train_regression_linear_model(model: *mut f32, dataset_inputs: *mut f32, dataset_expected_outputs: *mut f32, model_size: i32, dataset_inputs_size: i32) {
-    let input_size = model_size as usize - 1;
-    let sample_count = (dataset_inputs_size as usize) / input_size;
+pub extern "C" fn save_linear_model(model: *mut StructLinearModel, path: *const c_char) {
     let model = unsafe {
-        from_raw_parts_mut(model, model_size as usize)
+        model.as_mut().unwrap()
     };
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let serialized = serde_json::to_string(&model).unwrap();
+    let mut output = File::create(path).unwrap();
+    write!(output, "{}", &serialized).unwrap();
+}
+
+
+#[no_mangle]
+pub extern "C" fn load_linear_model(path: *const c_char) -> *mut StructLinearModel{
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let model = serde_json::from_reader(reader).unwrap();
+
+    let boxed_model = Box::new(model);
+    let pointer = Box::leak(boxed_model);
+    pointer
+}
+
+
+#[no_mangle]
+pub extern "C" fn train_regression_linear_model(model: *mut StructLinearModel, dataset_inputs: *mut f32, dataset_expected_outputs: *mut f32, dataset_inputs_size: i32) {
+    let model = unsafe {
+        model.as_mut().unwrap()
+    };
+    let input_size = model.model.len() - 1;
+    let sample_count = (dataset_inputs_size as usize) / input_size;
     let dataset_inputs = unsafe {
         from_raw_parts(dataset_inputs, dataset_inputs_size as usize)
     };
@@ -48,21 +91,37 @@ pub extern "C" fn train_regression_linear_model(model: *mut f32, dataset_inputs:
     let y = all_expected_outputs_array.into_shape((sample_count, 1 as usize)).unwrap();
 
     let xtx = x.t().dot(&x);
-    let xtx_inv = xtx.inv().unwrap();
+    // let xtx_inv = xtx.inv().unwrap();
+    let xtx_inv = match xtx.inv() {
+        Err(_e) => {
+            let mut ridge = Array::default((sample_count, sample_count));
+            for i in 0..sample_count {
+                for j in 0..sample_count {
+                    if i == j {
+                        ridge[(i, j)] = 0.1;
+                    } else {
+                        ridge[(i, j)] = 0.0;
+                    }
+                }
+            }
+            (xtx + ridge).inv().unwrap()
+        }
+        Ok(v) => v,
+    };
     let w = xtx_inv.dot(&x.t()).dot(&y);
 
-    for i in 0..model_size as usize {
-        model[i] = w[[i, 0]];
+    for i in 0..model.model.len() {
+        model.model[i] = w[[i, 0]];
     }
 }
 
 #[no_mangle]
-pub extern "C" fn train_rosenblatt_linear_model(model: *mut f32, dataset_inputs: *mut f32, dataset_expected_outputs: *mut f32, iterations_count: i32, alpha: f32, model_size: i32, dataset_inputs_size: i32) {
-    let input_size = model_size as usize - 1;
-    let sample_count = (dataset_inputs_size as usize) / input_size;
+pub extern "C" fn train_rosenblatt_linear_model(model: *mut StructLinearModel, dataset_inputs: *mut f32, dataset_expected_outputs: *mut f32, iterations_count: i32, alpha: f32, dataset_inputs_size: i32) {
     let model = unsafe {
-        from_raw_parts_mut(model, model_size as usize)
+        model.as_mut().unwrap()
     };
+    let input_size = model.model.len() - 1;
+    let sample_count = (dataset_inputs_size as usize) / input_size;
     let dataset_inputs = unsafe {
         from_raw_parts(dataset_inputs, dataset_inputs_size as usize)
     };
@@ -73,59 +132,54 @@ pub extern "C" fn train_rosenblatt_linear_model(model: *mut f32, dataset_inputs:
         let k = rand::thread_rng().gen_range(0..sample_count);
         let xk = &dataset_inputs[(k * input_size) as usize..((k + 1) * input_size) as usize];
         let yk = dataset_expected_outputs[k * 1];
-        let gxk = predict_linear_model_classification_slice(model, xk, model_size);
+        let gxk = predict_linear_model_classification_slice(&model, xk);
 
-        model[0] += alpha * (yk - gxk) * 1.0;
-        for i in 1..model_size as usize {
-            model[i] += alpha * (yk - gxk) * xk[i - 1];
+        model.model[0] += alpha * (yk - gxk) * 1.0;
+        for i in 1..model.model.len() {
+            model.model[i] += alpha * (yk - gxk) * xk[i - 1];
         }
     }
 }
 
-fn predict_linear_model_classification_slice(model: &[f32], inputs: &[f32], model_size: i32) -> f32 {
-    let pred = predict_linear_model_regression_slice(model, inputs, model_size);
+fn predict_linear_model_classification_slice(model: &StructLinearModel, inputs: &[f32]) -> f32 {
+    let pred = predict_linear_model_regression_slice(model, inputs);
     return if pred >= 0.0 { 1.0 } else { -1.0 };
 }
 
-fn predict_linear_model_regression_slice(model: &[f32], inputs: &[f32], model_size: i32) -> f32 {
-    let mut sum_rslt = model[0];
-    for i in 1..model_size as usize {
-        sum_rslt += model[i] * inputs[i - 1];
+fn predict_linear_model_regression_slice(model: &StructLinearModel, inputs: &[f32]) -> f32 {
+    let mut sum_rslt = model.model[0];
+    for i in 1..model.model.len() {
+        sum_rslt += model.model[i] * inputs[i - 1];
     }
     return sum_rslt;
 }
 
 #[no_mangle]
-pub extern "C" fn predict_linear_model_classification(model: *mut f32, inputs: *mut f32, model_size: i32) -> f32 {
-    let pred = predict_linear_model_regression(model, inputs, model_size);
+pub extern "C" fn predict_linear_model_classification(model: *mut StructLinearModel, inputs: *mut f32) -> f32 {
+    let pred = predict_linear_model_regression(model, inputs);
     return if pred >= 0.0 { 1.0 } else { -1.0 };
 }
 
 #[no_mangle]
-pub extern "C" fn predict_linear_model_regression(model: *mut f32, inputs: *mut f32, model_size: i32) -> f32 {
+pub extern "C" fn predict_linear_model_regression(model: *mut StructLinearModel, inputs: *mut f32) -> f32 {
     let model = unsafe {
-        from_raw_parts(model, model_size as usize)
+        model.as_mut().unwrap()
     };
     let inputs = unsafe {
-        from_raw_parts(inputs, model_size as usize - 1)
+        from_raw_parts(inputs, model.model.len() - 1)
     };
-    predict_linear_model_regression_slice(model, inputs, model_size)
-    // let mut sum_rslt = model[0];
-    // for i in 1..model_size as usize{
-    //     sum_rslt += model[i] * inputs[i - 1];
-    // }
-    // return sum_rslt;
+    predict_linear_model_regression_slice(model, inputs)
 }
 
 #[no_mangle]
-pub extern "C" fn destroy_linear_model(model: *mut f32, model_size: i32) {
+pub extern "C" fn destroy_linear_model(model: *mut StructLinearModel) {
     unsafe {
-        let _ = Vec::from_raw_parts(model, model_size as usize, model_size as usize);
+        let _ = Box::from_raw(model);
     }
 }
 
 /// MLP MODEL ///
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct StructMLP {
     d: Vec<i32>,
     w: Vec<Vec<Vec<f32>>>,
@@ -254,6 +308,33 @@ pub extern "C" fn create_mlp_model(npl: *mut i32, npl_size: i32) -> *mut StructM
 }
 
 #[no_mangle]
+pub extern "C" fn save_mlp_model(model: *mut StructMLP, path: *const c_char) {
+    let model = unsafe {
+        model.as_mut().unwrap()
+    };
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let serialized = serde_json::to_string(&model).unwrap();
+    let mut output = File::create(path).unwrap();
+    write!(output, "{}", &serialized).unwrap();
+}
+
+#[no_mangle]
+pub extern "C" fn load_mlp_model(path: *const c_char) -> *mut StructMLP {
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let model = serde_json::from_reader(reader).unwrap();
+
+    let boxed_model = Box::new(model);
+    let pointer = Box::leak(boxed_model);
+    pointer
+}
+
+#[no_mangle]
 pub extern "C" fn train_classification_stochastic_backprop_mlp_model(model: *mut StructMLP, flattened_data_inputs: *mut f32, flattened_data_inputs_size: i32, flattened_expected_outputs: *mut f32, flattened_expected_outputs_size: i32, alpha: f32, iterations_count: i32) {
     let model = unsafe {
         model.as_mut().unwrap()
@@ -291,14 +372,11 @@ pub extern "C" fn predict_mlp_model_classification(model: *mut StructMLP, sample
     let sample_inputs = unsafe {
         from_raw_parts(sample_inputs, sample_input_size as usize)
     };
-    // dbg!(&model);
-    // dbg!(&sample_inputs);
 
     model.forward_pass(&sample_inputs.to_vec(), true);
 
     let boxed_slice = model.x[model.d.len() - 1][1..].to_vec().into_boxed_slice();
     let arr_ref = Box::leak(boxed_slice);
-    // dbg!(&arr_ref);
     arr_ref.as_mut_ptr()
 }
 
@@ -326,8 +404,12 @@ pub extern "C" fn destroy_mlp_model(model: *mut StructMLP) {
 }
 
 /// SVM MODEL ///
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StructSVM {
+    model: Vec<f32>,
+}
 
-pub fn quadratic_solver(big_matrix: Vec<Vec<f64>>, expected_outputs: &[f32], sample_count: usize) -> *mut f64 {
+pub fn quadratic_solver(big_matrix: Vec<Vec<f64>>, expected_outputs: &[f32], sample_count: usize, alpha: f64, max_iterations_count: i32) -> *mut f64 {
     let p = CscMatrix::from(&big_matrix).into_upper_tri();
     let q = Array::<f64, _>::ones((sample_count, 1)) * -1.0;
     let q = q.as_slice().unwrap();
@@ -354,7 +436,7 @@ pub fn quadratic_solver(big_matrix: Vec<Vec<f64>>, expected_outputs: &[f32], sam
     let u = u.as_slice().unwrap();
 
     let settings = Settings::default()
-        .verbose(false);
+        .verbose(false).alpha(alpha).max_iter(max_iterations_count as u32);
     let mut prob = Problem::new(p, q, a, l, u, &settings).expect("failed to setup problem");
     let result = prob.solve();
     let alphas = result.x().unwrap();
@@ -365,7 +447,7 @@ pub fn quadratic_solver(big_matrix: Vec<Vec<f64>>, expected_outputs: &[f32], sam
 }
 
 #[no_mangle]
-pub extern "C" fn create_svm_model(sample_inputs_flat: *mut f64, expected_outputs: *mut f32, inputs_size: i32, sample_count: i32) -> *mut f32 {
+pub extern "C" fn create_svm_model(sample_inputs_flat: *mut f64, expected_outputs: *mut f32, inputs_size: i32, sample_count: i32, alpha: f64, max_iterations_count: i32) -> *mut StructSVM {
     let inputs_size = inputs_size as usize;
     let sample_count = sample_count as usize;
     let sample_inputs_flat = unsafe {
@@ -386,7 +468,7 @@ pub extern "C" fn create_svm_model(sample_inputs_flat: *mut f64, expected_output
     }
 
     let alphas = unsafe {
-        from_raw_parts(quadratic_solver(big_matrix, expected_outputs, sample_count), sample_count)
+        from_raw_parts(quadratic_solver(big_matrix, expected_outputs, sample_count, alpha, max_iterations_count), sample_count)
     };
 
     let mut tmp_w = Vec::with_capacity(inputs_size);
@@ -400,13 +482,6 @@ pub extern "C" fn create_svm_model(sample_inputs_flat: *mut f64, expected_output
     }
 
     let sv_pos = alphas.iter().position_max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-    // let mut sv_pos = sample_count-1;
-    // for i in 0..sample_count {
-    //     if result.x().unwrap()[i] > 0.001 {
-    //         sv_pos = i;
-    //         break;
-    //     }
-    // }
 
     let xsv_pos = &sample_inputs_flat[(sv_pos * inputs_size)..((sv_pos + 1) * inputs_size)];
     let mut sum_wx = 0.0;
@@ -420,23 +495,62 @@ pub extern "C" fn create_svm_model(sample_inputs_flat: *mut f64, expected_output
         w.push(tmp_w[i]);
     }
 
-    let boxed_slice = w.into_boxed_slice();
-    let arr_ref = Box::leak(boxed_slice);
-    arr_ref.as_mut_ptr()
+    let model = StructSVM {
+        model: w,
+    };
+
+    let boxed_model = Box::new(model);
+    let pointer = Box::leak(boxed_model);
+    pointer
 }
 
 #[no_mangle]
-pub extern "C" fn predict_svm(model: *mut f32, sample_inputs: *mut f32, sample_input_size: i32) -> f32 {
+pub extern "C" fn save_svm_model(model: *mut StructSVM, path: *const c_char) {
     let model = unsafe {
-        Array::from(from_raw_parts(model, sample_input_size as usize).to_vec())
+        model.as_mut().unwrap()
     };
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let serialized = serde_json::to_string(&model).unwrap();
+    let mut output = File::create(path).unwrap();
+    write!(output, "{}", &serialized).unwrap();
+}
+
+#[no_mangle]
+pub extern "C" fn load_svm_model(path: *const c_char) -> *mut StructSVM {
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let model = serde_json::from_reader(reader).unwrap();
+
+    let boxed_model = Box::new(model);
+    let pointer = Box::leak(boxed_model);
+    pointer
+}
+
+#[no_mangle]
+pub extern "C" fn predict_svm(model: *mut StructSVM, sample_inputs: *mut f32, sample_input_size: i32) -> f32 {
+    let model = unsafe {
+        model.as_mut().unwrap()
+    };
+    let model = Array::from(model.model.to_vec());
     let sample_inputs = unsafe {
         Array::from(from_raw_parts(sample_inputs, sample_input_size as usize).to_vec())
     };
     model.dot(&sample_inputs)
 }
 
-#[derive(Debug)]
+#[no_mangle]
+pub extern "C" fn destroy_svm_model(model: *mut StructSVM) {
+    unsafe {
+        let _ = Box::from_raw(model);
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct StructSVMKernelTrick {
     w0: f32,
     alphas: Vec<f64>,
@@ -447,7 +561,7 @@ pub struct StructSVMKernelTrick {
 }
 
 #[no_mangle]
-pub extern "C" fn create_svm_kernel_trick_model(sample_inputs_flat: *mut f32, expected_outputs: *mut f32, inputs_size: i32, sample_count: i32) -> *mut StructSVMKernelTrick {
+pub extern "C" fn create_svm_kernel_trick_model(sample_inputs_flat: *mut f32, expected_outputs: *mut f32, inputs_size: i32, sample_count: i32, alpha: f64, max_iterations_count: i32) -> *mut StructSVMKernelTrick {
     let inputs_size = inputs_size as usize;
     let sample_count = sample_count as usize;
     let sample_inputs_flat = unsafe {
@@ -468,7 +582,7 @@ pub extern "C" fn create_svm_kernel_trick_model(sample_inputs_flat: *mut f32, ex
     }
 
     let alphas = unsafe {
-        from_raw_parts(quadratic_solver(big_matrix, expected_outputs, sample_count), sample_count)
+        from_raw_parts(quadratic_solver(big_matrix, expected_outputs, sample_count, alpha, max_iterations_count), sample_count)
     };
 
     let sv_pos = alphas.iter().position_max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
@@ -493,6 +607,33 @@ pub extern "C" fn create_svm_kernel_trick_model(sample_inputs_flat: *mut f32, ex
     let pointer = Box::leak(boxed_model);
     pointer
 }
+#[no_mangle]
+pub extern "C" fn save_svm_kernel_trick_model(model: *mut StructSVMKernelTrick, path: *const c_char) {
+    let model = unsafe {
+        model.as_mut().unwrap()
+    };
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let serialized = serde_json::to_string(&model).unwrap();
+    let mut output = File::create(path).unwrap();
+    write!(output, "{}", &serialized).unwrap();
+}
+
+#[no_mangle]
+pub extern "C" fn load_svm_kernel_trick_model(path: *const c_char) -> *mut StructSVMKernelTrick {
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let model = serde_json::from_reader(reader).unwrap();
+
+    let boxed_model = Box::new(model);
+    let pointer = Box::leak(boxed_model);
+    pointer
+}
+
 
 #[no_mangle]
 pub extern "C" fn predict_svm_kernel_trick(model: *mut StructSVMKernelTrick, sample_inputs: *mut f32, sample_input_size: i32) -> f32 {
@@ -520,8 +661,15 @@ pub fn radial_kernel(xn: &[f32], xm: &[f32]) -> f32 {
         * expf(((Array::from(xn.to_vec()) * 2.0).dot(&Array::from(xm.to_vec()))) as f32)
 }
 
+#[no_mangle]
+pub extern "C" fn destroy_svm_kernel_trick_model(model: *mut StructSVMKernelTrick) {
+    unsafe {
+        let _ = Box::from_raw(model);
+    }
+}
+
 /// RBF MODEL ///
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct StructRBFKCenter {
     w: Vec<f32>,
     x: Vec<Vec<f32>>,
@@ -546,6 +694,35 @@ pub extern "C" fn create_rbf_k_center_model(input_dim: i32, cluster_num: i32, ga
         x,
         gamma,
     };
+
+    let boxed_model = Box::new(model);
+    let pointer = Box::leak(boxed_model);
+    pointer
+}
+
+#[no_mangle]
+pub extern "C" fn save_rbf_k_center_model(model: *mut StructRBFKCenter, path: *const c_char) {
+    let model = unsafe {
+        model.as_mut().unwrap()
+    };
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    dbg!(&model);
+    let serialized = serde_json::to_string(&model).unwrap();
+    let mut output = File::create(path).unwrap();
+    write!(output, "{}", &serialized).unwrap();
+}
+
+#[no_mangle]
+pub extern "C" fn load_rbf_k_center_model(path: *const c_char) -> *mut StructRBFKCenter {
+    let path = unsafe {
+        CStr::from_ptr(path).to_str().unwrap()
+    };
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let model = serde_json::from_reader(reader).unwrap();
+    dbg!(&model);
 
     let boxed_model = Box::new(model);
     let pointer = Box::leak(boxed_model);
@@ -668,11 +845,6 @@ pub extern "C" fn predict_rbf_k_center_model_regression(model: *mut StructRBFKCe
         from_raw_parts(inputs, model.x[0].len())
     };
     predict_rbf_k_center_model_regression_slice(model, inputs)
-    // let mut result = 0f32;
-    // for i in 0..model.w.len() {
-    //     result += model.w[i] * expf(-model.gamma * euclid(inputs, model.x[i].as_slice()) * euclid(inputs, model.x[i].as_slice()));
-    // }
-    // result
 }
 
 #[no_mangle]
@@ -702,39 +874,14 @@ pub extern "C" fn train_rosenblatt_rbf_k_center_model(model: *mut StructRBFKCent
         }
     }
 
-    // let mut phi = Array::default((sample_count as usize, cluster_num as usize));
-    // for i in 0..sample_count as usize {
-    //     let xi = &sample_inputs_flat[(i * inputs_size as usize)..((i + 1) * inputs_size as usize)];
-    //     for j in 0..cluster_num as usize {
-    //         let cluster_pointsj = &cluster_points[(j * inputs_size as usize)..((j + 1) * inputs_size as usize)];
-    //         phi[(i, j)] = expf(-model.gamma * euclid(xi, cluster_pointsj) * euclid(xi, cluster_pointsj));
-    //         for n in 0..inputs_size as usize {
-    //             model.x[j][n] = cluster_pointsj[n];
-    //         }
-    //     }
-    // }
-    //
-    // let y = Array::from(expected_outputs.to_vec());
-    // let phitphi = phi.t().dot(&phi);
-    // let phitphi_inv = phitphi.inv().unwrap();
-    // let w = (phitphi_inv.dot(&phi.t())).dot(&y);
-    //
-    // for i in 0..cluster_num as usize {
-    //     model.w[i] = w[i];
-    // }
-
     for _ in 0..iterations_count as usize {
-        // let k = rand::thread_rng().gen_range(0..cluster_num) as usize;
         let k = rand::thread_rng().gen_range(0..sample_count) as usize;
-        // let xk = &cluster_points[(k * inputs_size as usize)..((k + 1) * inputs_size as usize)];
         let x = &sample_inputs_flat[(k * inputs_size as usize)..((k + 1) * inputs_size as usize)];
-        let xk = phi[k].clone();
         let yk = expected_outputs[k * 1];
         let gx = predict_rbf_k_center_model_classification_slice(model, x);
-        // let gxk = predict_rbf_k_center_model_classification_slice(model, xk.as_slice());
 
         for i in 0..cluster_num as usize {
-            model.w[i] += alpha * (yk - gx) * xk[i];
+            model.w[i] += alpha * (yk - gx) * expf(-model.gamma * euclid(x, model.x[i].as_slice()) * euclid(x, model.x[i].as_slice()));
         }
     }
 }
