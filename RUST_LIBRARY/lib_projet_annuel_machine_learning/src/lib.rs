@@ -708,7 +708,6 @@ pub extern "C" fn save_rbf_k_center_model(model: *mut StructRBFKCenter, path: *c
     let path = unsafe {
         CStr::from_ptr(path).to_str().unwrap()
     };
-    dbg!(&model);
     let serialized = serde_json::to_string(&model).unwrap();
     let mut output = File::create(path).unwrap();
     write!(output, "{}", &serialized).unwrap();
@@ -722,7 +721,6 @@ pub extern "C" fn load_rbf_k_center_model(path: *const c_char) -> *mut StructRBF
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
     let model = serde_json::from_reader(reader).unwrap();
-    dbg!(&model);
 
     let boxed_model = Box::new(model);
     let pointer = Box::leak(boxed_model);
@@ -861,13 +859,9 @@ pub extern "C" fn train_rosenblatt_rbf_k_center_model(model: *mut StructRBFKCent
     };
     let cluster_points = lloyd(sample_inputs_flat, cluster_num, 10, sample_count, inputs_size);
 
-    let mut phi = Vec::with_capacity(sample_count as usize);
-    for i in 0..sample_count as usize {
-        phi.push(Vec::with_capacity(cluster_num as usize));
-        let xi = &sample_inputs_flat[(i * inputs_size as usize)..((i + 1) * inputs_size as usize)];
+    for _ in 0..sample_count as usize {
         for j in 0..cluster_num as usize {
             let cluster_pointsj = &cluster_points[(j * inputs_size as usize)..((j + 1) * inputs_size as usize)];
-            phi[i].push(expf(-model.gamma * euclid(xi, cluster_pointsj) * euclid(xi, cluster_pointsj)));
             for n in 0..inputs_size as usize {
                 model.x[j][n] = cluster_pointsj[n];
             }
