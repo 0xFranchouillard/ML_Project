@@ -1,0 +1,25 @@
+<!doctype html>
+<title>Flask & VGG16 Image Classifier</title>
+<h2>Select a file to upload</h2>
+<p>
+	{% with messages = get_flashed_messages() %}
+	  {% if messages %}
+        Label: {{ messages[0] }}
+	  {% endif %}
+	{% endwith %}
+</p>
+<form method="post" action="/" enctype="multipart/form-data">
+	<select name=modelnames method="GET" action="/">
+    {% for modelname in modelnames %}
+		<option value= "{{modelname}}" SELECTED>{{modelname}}</option>"
+    {% endfor %}
+	</select>
+    <dl>
+	<p>
+		<input type="file" name="file" autocomplete="off" required>
+	</p>
+    </dl>
+    <p>
+	<input type="submit" value="Submit">
+    </p>
+</form>
