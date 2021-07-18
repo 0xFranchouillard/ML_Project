@@ -1,25 +1,95 @@
 <!doctype html>
-<title>Falsk APP</title>
-<h2>Select a file to classify</h2>
-<p>
-	{% with messages = get_flashed_messages() %}
-	  {% if messages %}
-        Label: {{ messages[0] }}
-	  {% endif %}
-	{% endwith %}
-</p>
-<form method="post" action="/" enctype="multipart/form-data">
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+
+    <title>Reconnaissance de plante carnivore</title>
+
+    <!-- Bootstrap core CSS -->
+<link href="../static/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <link href="dashboard.css" rel="stylesheet">
+  </head>
+  <body>
+
+<header class="navbar navbar-dark sticky-top bg-dark flex-md-nowrap p-0 shadow">
+  <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3" href="#">Application Reconnaisance de plante Carnivore</a>
+  <button class="navbar-toggler position-absolute d-md-none collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu" aria-expanded="false" aria-label="Toggle navigation">
+    <span class="navbar-toggler-icon"></span>
+  </button>
+</header>
+
+<div class="container-fluid">
+  <div class="row">
+    <nav id="sidebarMenu" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+      <div class="position-sticky pt-3">
+        <form method="post" enctype="multipart/form-data">
+        <ul class="nav flex-column">
+          <li class="nav-item">
+                <span data-feather="file"></span>
+        
+                <label for="avatar">Choisir une image:</label>
+
+                <input type="file" name="file" accept="image/png, image/jpeg">
+          </li>
+
+        </ul>
+
+        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-12 mt-3 mb-1 text-muted">
+
+          <span>Models :</span>
+          <a class="link-secondary" href="#" aria-label="Add a new report">
+            <span data-feather="plus-circle"></span>
+          </a>
+        </h6>
+            
+            
+    <form method="post" action="/" enctype="multipart/form-data">
 	<select name=modelnames method="GET" action="/">
     {% for modelname in modelnames %}
 		<option value= "{{modelname}}" SELECTED>{{modelname}}</option>"
     {% endfor %}
 	</select>
-    <dl>
-	<p>
-		<input type="file" name="file" autocomplete="off" required>
-	</p>
-    </dl>
+
     <p>
-	<input type="submit" value="Submit">
+        <br>
+	<input type="submit" value="Valider">
     </p>
-</form>
+    </form>
+            
+        
+
+        </form>
+      </div>
+    </nav>
+      
+
+      
+      
+      
+
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+          <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+            <h2>Résultat :</h2>
+            </div>
+            <h4>
+                   {% with messages = get_flashed_messages() %}
+                  {% if messages %}
+                    Label: {{ messages[0] }}
+                  {% endif %}
+                {% endwith %}
+            </h4>
+            
+        </main>
+      </div>
+    </div>
+      
+
+
+
+    <script src="/docs/5.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf" crossorigin="anonymous"></script>
+
+      <script src="https://cdn.jsdelivr.net/npm/feather-icons@4.28.0/dist/feather.min.js" integrity="sha384-uO3SXW5IuS1ZpFPKugNNWqTZRRglnUJK6UAZ/gxOX80nxEkN9NcGZTftn6RzhGWE" crossorigin="anonymous"></script><script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js" integrity="sha384-zNy6FEbO50N+Cg5wap8IKA4M/ZnLJgzc6w2NqACZaK0u0FXfOWRRJOnQtpZun8ha" crossorigin="anonymous"></script><script src="dashboard.js"></script>
+  </body>
+</html>
