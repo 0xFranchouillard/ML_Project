@@ -1,14 +1,17 @@
 from ctypes import *
-
+import datetime
 import random
+import pandas as pd
+import seaborn as sn
+from sklearn.metrics import confusion_matrix
+import matplotlib
 import numpy as np
 import matplotlib.pyplot as plt
+import sklearn.metrics
 from mpl_toolkits.mplot3d import Axes3D
 from process_dataset import *
 
-PATH_TO_SHARED_LIBRARY = "D:/CLion/PA/lib_projet_annuel_machine_learning/target/debug" \
-                         "/lib_projet_annuel_machine_learning.dll "
-path_to_shared_library_release = "D:/CLion/PA/lib_projet_annuel_machine_learning/target/release/lib_projet_annuel_machine_learning.dll"
+PATH_TO_SHARED_LIBRARY = "../../RUST_LIBRARY/lib_projet_annuel_machine_learning/target/release/lib_projet_annuel_machine_learning.dll"
 
 
 def create_linear_model(my_lib, size):
@@ -109,7 +112,8 @@ def test_classification_linear_model(my_lib):
         plt.scatter([p[0] for p in dataset_inputs[2:]], [p[1] for p in dataset_inputs[2:]], c='red', s=100)
         plt.show()
 
-        train_rosenblatt_linear_model(my_lib, model, np.array(dataset_inputs).flatten(), dataset_expected_outputs, 20, 0.1)
+        train_rosenblatt_linear_model(my_lib, model, np.array(dataset_inputs).flatten(), dataset_expected_outputs, 20,
+                                      0.1)
 
     save_linear_model(my_lib, model, "linear_model_classification.json")
     model2 = load_linear_model(my_lib, "linear_model_classification.json")
@@ -371,7 +375,7 @@ def test_regression_mlp_model(my_lib):
 
 
 def predict_mlp_model_classification_3_class(my_lib, model, inputs):
-    inputs_float = [float(i) for i in inputs]
+    inputs_float = [float(i) / 127.5 - 1.0 for i in inputs]
     inputs_type = len(inputs_float) * c_float
 
     my_lib.predict_mlp_model_classification.argtypes = [POINTER(c_void_p),
@@ -385,7 +389,7 @@ def predict_mlp_model_classification_3_class(my_lib, model, inputs):
 
 def train_classification_stochastic_backprop_mlp_model_3_class(my_lib, model, dataset_inputs, dataset_expected_outputs,
                                                                alpha, iterations_count):
-    dataset_inputs_float = [float(i) for i in dataset_inputs]
+    dataset_inputs_float = [float(i) / 127.5 - 1.0 for i in dataset_inputs]
     dataset_inputs_flattened_type = len(dataset_inputs_float) * c_float
     dataset_expected_outputs_float = [float(i) for i in dataset_expected_outputs]
     dataset_expected_outputs_type = len(dataset_expected_outputs_float) * c_float
@@ -1081,9 +1085,467 @@ def test_classification_rbf_k_center_model(my_lib):
     destroy_rbf_k_center_model(my_lib, model)
 
 
+def IA_RBF(my_lib):
+    dataset_train_img, dataset_train_label = load_dataset("../../DATASET_80px_TRAIN")
+    dataset_test_img, dataset_test_label = load_dataset("../../DATASET_80px_TEST")
+
+    dataset_expected_outputs = np.array(
+        [[1, -1, -1] if p == "Dionea" else [-1, 1, -1] if p == "Sarracenia" else [-1, -1, 1] for p in
+         dataset_train_label])
+    dataset_expected_outputs_test = np.array(
+        [[1, -1, -1] if p == "Dionea" else [-1, 1, -1] if p == "Sarracenia" else [-1, -1, 1] for p in
+         dataset_test_label])
+    dataset_expected_outputs_sarracenia = np.array([1 if v[1] == 1 else -1 for v in dataset_expected_outputs])
+    dataset_expected_outputs_drosera = np.array([1 if v[2] == 1 else -1 for v in dataset_expected_outputs])
+    dataset_expected_outputs_dionaea = np.array([1 if v[0] == 1 else -1 for v in dataset_expected_outputs])
+
+    model_sarracenia = create_rbf_k_center_model(my_lib, 9, 3, 0.1)
+    model_drosera = create_rbf_k_center_model(my_lib, 9, 3, 0.1)
+    model_dionaea = create_rbf_k_center_model(my_lib, 9, 3, 0.1)
+    # model_sarracenia = load_rbf_k_center_model(my_lib, "rbf_sarracenia.json")
+    # model_drosera = load_rbf_k_center_model(my_lib, "rbf_drosera.json")
+    # model_dionaea = load_rbf_k_center_model(my_lib, "rbf_dionaea.json")
+
+    point_x = []
+    point_y = []
+    point_mse_y = []
+    point_y_test = []
+    point_mse_y_test = []
+
+    for n in range(1501):
+        train_rosenblatt_rbf_k_center_model(my_lib, model_sarracenia, np.array(dataset_train_img).flatten(),
+                                            dataset_expected_outputs_sarracenia.flatten(), len(dataset_train_img),
+                                            float(0.005))
+        train_rosenblatt_rbf_k_center_model(my_lib, model_drosera, np.array(dataset_train_img).flatten(),
+                                            dataset_expected_outputs_drosera.flatten(), len(dataset_train_img),
+                                            float(0.005))
+        train_rosenblatt_rbf_k_center_model(my_lib, model_dionaea, np.array(dataset_train_img).flatten(),
+                                            dataset_expected_outputs_dionaea.flatten(), len(dataset_train_img),
+                                            float(0.005))
+
+        # Dataset de Train
+        true_true_sarracenia = 0
+        false_false_sarracenia = 0
+
+        true_true_drosera = 0
+        false_false_drosera = 0
+
+        true_true_dionea = 0
+        false_false_dionea = 0
+
+        predicted_values_sarracenia = [
+            predict_rbf_k_center_model_classification(my_lib, model_sarracenia, np.array(i).flatten()) for i in
+            dataset_train_img]
+        predicted_values_drosera = [
+            predict_rbf_k_center_model_classification(my_lib, model_drosera, np.array(i).flatten()) for i in
+            dataset_train_img]
+        predicted_values_dionaea = [
+            predict_rbf_k_center_model_classification(my_lib, model_dionaea, np.array(i).flatten()) for i in
+            dataset_train_img]
+
+        predicted_values = predicted_values_sarracenia
+        for i in range(len(predicted_values_sarracenia)):
+            if predicted_values_sarracenia[i] >= 0:
+                predicted_values[i] = 1
+            if predicted_values_drosera[i] >= 0:
+                predicted_values[i] = 2
+            if predicted_values_dionaea[i] >= 0:
+                predicted_values[i] = 0
+            if predicted_values_sarracenia[i] < 0 and predicted_values_drosera[i] < 0 and predicted_values_dionaea[
+                i] < 0:
+                predicted_values[i] = 3
+
+        colors = ['Dionea' if c == 0 else ('Sarracenia' if c == 1 else ('Drosera' if c == 2 else "None")) for c in
+                  predicted_values]
+
+        sum_se = 0
+        for i in range(len(predicted_values)):
+            if np.array(dataset_expected_outputs[i]).argmax() == 0:
+                sum_se += (predicted_values_sarracenia[i] - (-1)) ** 2
+                sum_se += (predicted_values_drosera[i] - (-1)) ** 2
+                sum_se += (predicted_values_dionaea[i] - 1) ** 2
+            elif np.array(dataset_expected_outputs[i]).argmax() == 1:
+                sum_se += (predicted_values_sarracenia[i] - 1) ** 2
+                sum_se += (predicted_values_drosera[i] - (-1)) ** 2
+                sum_se += (predicted_values_dionaea[i] - (-1)) ** 2
+            else:
+                sum_se += (predicted_values_sarracenia[i] - (-1)) ** 2
+                sum_se += (predicted_values_drosera[i] - 1) ** 2
+                sum_se += (predicted_values_dionaea[i] - (-1)) ** 2
+        mse = sum_se / (len(predicted_values) * 3)
+
+        point_mse_y.append(mse)
+
+        for i in range(len(colors)):
+            if ((colors[i] == "Dionea") and (dataset_train_label[i] == "Dionea")):
+                true_true_dionea += 1
+            if ((colors[i] != "Dionea") and (dataset_train_label[i] == "Dionea")):
+                false_false_dionea += 1
+
+            if ((colors[i] == "Drosera") and (dataset_train_label[i] == "Drosera")):
+                true_true_drosera += 1
+            if ((colors[i] != "Drosera") and (dataset_train_label[i] == "Drosera")):
+                false_false_drosera += 1
+
+            if ((colors[i] == "Sarracenia") and (dataset_train_label[i] == "Sarracenia")):
+                true_true_sarracenia += 1
+            if ((colors[i] != "Sarracenia") and (dataset_train_label[i] == "Sarracenia")):
+                false_false_sarracenia += 1
+
+        point_x.append(float(n))
+        point_y.append(((true_true_dionea / (true_true_dionea + false_false_dionea)) + (
+                true_true_drosera / (true_true_drosera + false_false_drosera)) + (
+                                true_true_sarracenia / (true_true_sarracenia + false_false_sarracenia))) / 3)
+
+        # Dataset de Test
+        true_true_sarracenia_test = 0
+        false_false_sarracenia_test = 0
+
+        true_true_drosera_test = 0
+        false_false_drosera_test = 0
+
+        true_true_dionea_test = 0
+        false_false_dionea_test = 0
+
+        predicted_values_sarracenia = [
+            predict_rbf_k_center_model_classification(my_lib, model_sarracenia, np.array(i).flatten()) for i in
+            dataset_test_img]
+        predicted_values_drosera = [
+            predict_rbf_k_center_model_classification(my_lib, model_drosera, np.array(i).flatten()) for i in
+            dataset_test_img]
+        predicted_values_dionaea = [
+            predict_rbf_k_center_model_classification(my_lib, model_dionaea, np.array(i).flatten()) for i in
+            dataset_test_img]
+
+        predicted_values = predicted_values_sarracenia
+        for i in range(len(predicted_values_sarracenia)):
+            if predicted_values_sarracenia[i] >= 0:
+                predicted_values[i] = 1
+            if predicted_values_drosera[i] >= 0:
+                predicted_values[i] = 2
+            if predicted_values_dionaea[i] >= 0:
+                predicted_values[i] = 0
+            if predicted_values_sarracenia[i] < 0 and predicted_values_drosera[i] < 0 and predicted_values_dionaea[
+                i] < 0:
+                predicted_values[i] = 3
+
+        colors = ['Dionea' if c == 0 else ('Sarracenia' if c == 1 else ('Drosera' if c == 2 else "None")) for c in
+                  predicted_values]
+
+        sum_se = 0
+        for i in range(len(predicted_values)):
+            if np.array(dataset_expected_outputs_test[i]).argmax() == 0:
+                sum_se += (predicted_values_sarracenia[i] - (-1)) ** 2
+                sum_se += (predicted_values_drosera[i] - (-1)) ** 2
+                sum_se += (predicted_values_dionaea[i] - 1) ** 2
+            elif np.array(dataset_expected_outputs_test[i]).argmax() == 1:
+                sum_se += (predicted_values_sarracenia[i] - 1) ** 2
+                sum_se += (predicted_values_drosera[i] - (-1)) ** 2
+                sum_se += (predicted_values_dionaea[i] - (-1)) ** 2
+            else:
+                sum_se += (predicted_values_sarracenia[i] - (-1)) ** 2
+                sum_se += (predicted_values_drosera[i] - 1) ** 2
+                sum_se += (predicted_values_dionaea[i] - (-1)) ** 2
+        mse = sum_se / (len(predicted_values) * 3)
+
+        point_mse_y_test.append(mse)
+
+        for i in range(len(colors)):
+            if ((colors[i] == "Dionea") and (dataset_test_label[i] == "Dionea")):
+                true_true_dionea_test += 1
+            if ((colors[i] != "Dionea") and (dataset_test_label[i] == "Dionea")):
+                false_false_dionea_test += 1
+
+            if ((colors[i] == "Drosera") and (dataset_test_label[i] == "Drosera")):
+                true_true_drosera_test += 1
+            if ((colors[i] != "Drosera") and (dataset_test_label[i] == "Drosera")):
+                false_false_drosera_test += 1
+
+            if ((colors[i] == "Sarracenia") and (dataset_test_label[i] == "Sarracenia")):
+                true_true_sarracenia_test += 1
+            if ((colors[i] != "Sarracenia") and (dataset_test_label[i] == "Sarracenia")):
+                false_false_sarracenia_test += 1
+
+        point_y_test.append(((true_true_dionea_test / (true_true_dionea_test + false_false_dionea_test)) + (
+                true_true_drosera_test / (true_true_drosera_test + false_false_drosera_test)) + (
+                                     true_true_sarracenia_test / (
+                                     true_true_sarracenia_test + false_false_sarracenia_test))) / 3)
+        print(n)
+        if n % 100 == 0 and n != 0:
+            plt.clf()
+            plt.plot(point_x, point_y)
+            plt.plot(point_x, point_y_test, c="orange")
+            plt.savefig("rbf_accuracy_" + str(n) + ".png")
+            plt.clf()
+            plt.plot(point_x, point_mse_y)
+            plt.plot(point_x, point_mse_y_test, c="orange")
+            plt.savefig("rbf_loss_" + str(n) + ".png")
+            save_rbf_k_center_model(my_lib, model_sarracenia, "rbf_sarracenia_" + str(n) + ".json")
+            save_rbf_k_center_model(my_lib, model_drosera, "rbf_drosera_" + str(n) + ".json")
+            save_rbf_k_center_model(my_lib, model_dionaea, "rbf_dionaea_" + str(n) + ".json")
+
+    plt.clf()
+    plt.plot(point_x, point_y)
+    plt.show()
+    plt.clf()
+    plt.plot(point_x, point_mse_y)
+    plt.show()
+
+    save_rbf_k_center_model(my_lib, model_sarracenia, "rbf_sarracenia.json")
+    save_rbf_k_center_model(my_lib, model_drosera, "rbf_drosera.json")
+    save_rbf_k_center_model(my_lib, model_dionaea, "rbf_dionaea.json")
+    destroy_rbf_k_center_model(my_lib, model_sarracenia)
+    destroy_rbf_k_center_model(my_lib, model_drosera)
+    destroy_rbf_k_center_model(my_lib, model_dionaea)
+
+
+class MySKLearnMLPRawWrapper:
+    def __init__(self, lib, npl: [int], classification: bool = True):
+        self.lib = lib
+        self.model = create_mlp_model(lib, npl)
+        self.classification = classification
+
+    def predict(self, X):
+        if not hasattr(X, 'shape'):
+            X = np.array(X)
+        return np.array(predict_mlp_model_classification_3_class(self.lib, self.model))
+
+
+def IA(my_lib):
+    # resize_dataset(os.path.realpath('C:/Users/cedri/OneDrive/Bureau/DATASET_PROJET/TRAIN_120'), 120)
+    # resize_dataset(os.path.realpath('C:/Users/cedri/OneDrive/Bureau/DATASET_PROJET/TEST_120'), 120)
+
+    dataset_train_img, dataset_train_label = load_dataset("../../TRAIN_120")
+    dataset_test_img, dataset_test_label = load_dataset("../../TEST_120")
+    size_first_layer = sum([numpy.prod(img.shape) for img in dataset_train_img]) / len(dataset_train_img)
+
+    print(size_first_layer)
+    dataset_expected_outputs = np.array(
+        [[1, -1, -1] if p == "Dionea" else [-1, 1, -1] if p == "Sarracenia" else [-1, -1, 1] for p in
+         dataset_train_label])
+    dataset_expected_outputs_test = np.array(
+        [[1, -1, -1] if p == "Dionea" else [-1, 1, -1] if p == "Sarracenia" else [-1, -1, 1] for p in
+         dataset_test_label])
+
+    model = create_mlp_model(my_lib, [size_first_layer, 64, 3])
+    # model = load_mlp_model(my_lib, "dataset_mlp_model.json")
+
+    point_x = []
+    point_y = []
+    point_mse_x = []
+    point_mse_y = []
+    point_x_test = []
+    point_y_test = []
+    point_mse_x_test = []
+    point_mse_y_test = []
+
+    for n in range(1001):
+        print(n)
+        train_classification_stochastic_backprop_mlp_model_3_class(my_lib, model, np.array(dataset_train_img).flatten(),
+                                                                   dataset_expected_outputs.flatten(), float(0.00075),
+                                                                   len(dataset_train_img))
+        # Dataset de Train
+        true_true_sarracenia = 0
+        true_false_sarracenia = 0
+        false_true_sarracenia = 0
+        false_false_sarracenia = 0
+
+        true_true_drosera = 0
+        true_false_drosera = 0
+        false_true_drosera = 0
+        false_false_drosera = 0
+
+        true_true_dionea = 0
+        true_false_dionea = 0
+        false_true_dionea = 0
+        false_false_dionea = 0
+
+        predicted_values_train = [predict_mlp_model_classification_3_class(my_lib, model, np.array(i).flatten()) for
+                                  i in dataset_train_img]
+        classes_train = [np.argmax(v) for v in predicted_values_train]
+        classes_train_lbl = [np.argmax(v) for v in dataset_expected_outputs]
+        colors_train = ['Dionea' if c == 0 else ('Sarracenia' if c == 1 else 'Drosera') for c in classes_train]
+
+        sum_se = 0
+        for i in range(len(predicted_values_train)):
+            for j in range(3):
+                diff = predicted_values_train[i][j] - dataset_expected_outputs[i][j]
+                diff_square = diff ** 2
+                sum_se += diff_square
+        mse = sum_se / (len(predicted_values_train) * 3)
+
+        point_mse_x.append(float(n))
+        point_mse_y.append(mse)
+
+        for i in range(len(colors_train)):
+            if ((colors_train[i] == "Dionea") and (dataset_train_label[i] == "Dionea")):
+                true_true_dionea += 1
+            if ((colors_train[i] == "Dionea") and (dataset_train_label[i] != "Dionea")):
+                true_false_dionea += 1
+            if ((colors_train[i] != "Dionea") and (dataset_train_label[i] == "Dionea")):
+                false_false_dionea += 1
+            if ((colors_train[i] != "Dionea") and (dataset_train_label[i] != "Dionea")):
+                false_true_dionea += 1
+
+            if ((colors_train[i] == "Drosera") and (dataset_train_label[i] == "Drosera")):
+                true_true_drosera += 1
+            if ((colors_train[i] == "Drosera") and (dataset_train_label[i] != "Drosera")):
+                true_false_drosera += 1
+            if ((colors_train[i] != "Drosera") and (dataset_train_label[i] == "Drosera")):
+                false_false_drosera += 1
+            if ((colors_train[i] != "Drosera") and (dataset_train_label[i] != "Drosera")):
+                false_true_drosera += 1
+
+            if ((colors_train[i] == "Sarracenia") and (dataset_train_label[i] == "Sarracenia")):
+                true_true_sarracenia += 1
+            if ((colors_train[i] == "Sarracenia") and (dataset_train_label[i] != "Sarracenia")):
+                true_false_sarracenia += 1
+            if ((colors_train[i] != "Sarracenia") and (dataset_train_label[i] == "Sarracenia")):
+                false_false_sarracenia += 1
+            if ((colors_train[i] != "Sarracenia") and (dataset_train_label[i] != "Sarracenia")):
+                false_true_sarracenia += 1
+
+        point_x.append(float(n))
+        point_y.append(((true_true_dionea / (true_true_dionea + false_false_dionea)) + (
+                true_true_drosera / (true_true_drosera + false_false_drosera)) + (
+                                true_true_sarracenia / (true_true_sarracenia + false_false_sarracenia))) / 3)
+
+        # Dataset de Test
+        true_true_sarracenia_test = 0
+        true_false_sarracenia_test = 0
+        false_true_sarracenia_test = 0
+        false_false_sarracenia_test = 0
+
+        true_true_drosera_test = 0
+        true_false_drosera_test = 0
+        false_true_drosera_test = 0
+        false_false_drosera_test = 0
+
+        true_true_dionea_test = 0
+        true_false_dionea_test = 0
+        false_true_dionea_test = 0
+        false_false_dionea_test = 0
+
+        predicted_values_test = [predict_mlp_model_classification_3_class(my_lib, model, np.array(i).flatten()) for
+                                 i in dataset_test_img]
+        classes_test = [np.argmax(v) for v in predicted_values_test]
+        colors_test = ['Dionea' if c == 0 else ('Sarracenia' if c == 1 else 'Drosera') for c in classes_test]
+        classes_test_lbl = [np.argmax(v) for v in dataset_expected_outputs_test]
+
+        sum_se = 0
+        for i in range(len(predicted_values_test)):
+            for j in range(3):
+                diff = predicted_values_test[i][j] - dataset_expected_outputs_test[i][j]
+                diff_square = diff ** 2
+                sum_se += diff_square
+        mse = sum_se / (len(predicted_values_test) * 3)
+
+        point_mse_x_test.append(float(n))
+        point_mse_y_test.append(mse)
+
+        for i in range(len(colors_test)):
+            if ((colors_test[i] == "Dionea") and (dataset_test_label[i] == "Dionea")):
+                true_true_dionea_test += 1
+            if ((colors_test[i] == "Dionea") and (dataset_test_label[i] != "Dionea")):
+                true_false_dionea_test += 1
+            if ((colors_test[i] != "Dionea") and (dataset_test_label[i] == "Dionea")):
+                false_false_dionea_test += 1
+            if ((colors_test[i] != "Dionea") and (dataset_test_label[i] != "Dionea")):
+                false_true_dionea_test += 1
+
+            if ((colors_test[i] == "Drosera") and (dataset_test_label[i] == "Drosera")):
+                true_true_drosera_test += 1
+            if ((colors_test[i] == "Drosera") and (dataset_test_label[i] != "Drosera")):
+                true_false_drosera_test += 1
+            if ((colors_test[i] != "Drosera") and (dataset_test_label[i] == "Drosera")):
+                false_false_drosera_test += 1
+            if ((colors_test[i] != "Drosera") and (dataset_test_label[i] != "Drosera")):
+                false_true_drosera_test += 1
+
+            if ((colors_test[i] == "Sarracenia") and (dataset_test_label[i] == "Sarracenia")):
+                true_true_sarracenia_test += 1
+            if ((colors_test[i] == "Sarracenia") and (dataset_test_label[i] != "Sarracenia")):
+                true_false_sarracenia_test += 1
+            if ((colors_test[i] != "Sarracenia") and (dataset_test_label[i] == "Sarracenia")):
+                false_false_sarracenia_test += 1
+            if ((colors_test[i] != "Sarracenia") and (dataset_test_label[i] != "Sarracenia")):
+                false_true_sarracenia_test += 1
+
+        point_x_test.append(float(n))
+        point_y_test.append(((true_true_dionea_test / (true_true_dionea_test + false_false_dionea_test)) + (
+                true_true_drosera_test / (true_true_drosera_test + false_false_drosera_test)) + (
+                                     true_true_sarracenia_test / (
+                                         true_true_sarracenia_test + false_false_sarracenia_test))) / 3)
+
+        if (n % 50 == 0) and n != 0:
+            plt.clf()
+            plt.plot(point_x, point_y)
+            plt.plot(point_x_test, point_y_test, c="orange")
+            plt.savefig("accuracy_" + str(n) + ".png")
+            plt.clf()
+            plt.plot(point_mse_x, point_mse_y)
+            plt.plot(point_mse_x_test, point_mse_y_test, c="orange")
+            plt.savefig("loss_" + str(n) + ".png")
+            save_mlp_model(my_lib, model, "dataset_mlp_model_" + str(n) + ".json")
+            plt.clf()
+
+            try:
+                y_actu_train = pd.Series(classes_train, name='Predicted')
+                y_pred_train = pd.Series(classes_train_lbl, name='Actual')
+                df_confusion_train = confusion_matrix(y_actu_train, y_pred_train)
+                df_cm_train = pd.DataFrame(df_confusion_train, index=[i for i in ["Dionea", "Drosera", "Sarracenia"]],
+                                           columns=[i for i in ["Dionea", "Drosera", "Sarracenia"]])
+                plt.figure(figsize=(10, 7))
+                sn.heatmap(df_cm_train, annot=True, fmt='d')
+                plt.show()
+                #plt.savefig(str(n) + '.png')
+                plt.clf()
+
+                y_actu = pd.Series(classes_test, name='Predicted')
+                y_pred = pd.Series(classes_test_lbl, name='Actual')
+                df_confusion = confusion_matrix(y_actu, y_pred)
+                df_cm = pd.DataFrame(df_confusion, index=[i for i in ["Dionea", "Drosera", "Sarracenia"]],
+                                     columns=[i for i in ["Dionea", "Drosera", "Sarracenia"]])
+                plt.figure(figsize=(10, 7))
+                sn.heatmap(df_cm, annot=True, fmt='d')
+                plt.show()
+                #plt.savefig(str(n) + 'test.png')
+            except:
+                pass
+
+    plt.clf()
+    plt.plot(point_x, point_y)
+    plt.show()
+    plt.clf()
+    plt.plot(point_mse_x, point_mse_y)
+    plt.show()
+    plt.clf()
+
+
+    """cpt_train = 0
+    cpt_test = 0
+    print('--------------')
+    for l in range(len(classes_predict_train)):
+        if classes_predict_train[l] == classes_train[l]:
+            cpt = cpt_train + 1
+    print(cpt_train)
+    print("acc TRAIN: " + str(cpt_train / len(classes_predict_train)))
+    print('--------------')
+    for l in range(len(classes_predict_test)):
+        if classes_predict_test[l] == classes_test[l]:
+            cpt = cpt_test + 1
+    print(cpt_test)
+    print("acc TRAIN: " + str(cpt_test / len(classes_predict_test)))
+    print('--------------')"""
+
+    save_mlp_model(my_lib, model, "dataset_mlp_model_test_32gray.json")
+    destroy_mlp_model(my_lib, model)
+
+
 if __name__ == "__main__":
     # Load lib
     my_lib = cdll.LoadLibrary(PATH_TO_SHARED_LIBRARY)
+    IA(my_lib)
     # my_lib = cdll.LoadLibrary(path_to_shared_library_release)
 
     # test_classification_linear_model(my_lib)
